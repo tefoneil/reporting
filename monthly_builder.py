@@ -61,9 +61,13 @@ class ChronicReportBuilder:
         """Load and process the Tableau export files"""
         print(f"Loading impact data from {impacts_file}")
         impacts_df = pd.read_excel(impacts_file)
+        # Fix: Trim column headers to handle trailing spaces
+        impacts_df.columns = impacts_df.columns.str.strip()
         
         print(f"Loading counts data from {counts_file}")  
         counts_df = pd.read_excel(counts_file)
+        # Fix: Trim column headers to handle trailing spaces
+        counts_df.columns = counts_df.columns.str.strip()
         
         # Clean numeric columns that might have comma formatting
         for col in impacts_df.columns:
