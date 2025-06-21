@@ -1288,7 +1288,8 @@ class ChronicReportBuilder:
 
 def main():
     parser = argparse.ArgumentParser(description='Generate monthly chronic circuit reports')
-    parser.add_argument('--impacts', required=True, help='Path to impacts crosstab Excel file')
+    parser.add_argument('--impacts', required=True, help='Path to impacts A crosstab Excel file')
+    parser.add_argument('--impacts-b', help='Path to impacts B crosstab Excel file (optional)')
     parser.add_argument('--counts', required=True, help='Path to counts Excel file') 
     parser.add_argument('--template', help='Path to Word template file (optional)')
     parser.add_argument('--output', default='./final_output', help='Output directory')
@@ -1304,8 +1305,13 @@ def main():
     builder = ChronicReportBuilder(mask_level=args.mask_level, exclude_regional=args.exclude_regional, show_indicators=args.show_indicators)
     
     try:
+        # Use impacts A file (for now, impacts B is optional and not used in current logic)
+        impacts_file = args.impacts
+        if args.impacts_b:
+            print(f"Note: Using Impacts A file. Impacts B support may be added in future versions.")
+            
         corner_file, circuit_word_file, pdf_file = builder.build_monthly_report(
-            args.impacts, 
+            impacts_file, 
             args.counts,
             args.template,
             args.output
