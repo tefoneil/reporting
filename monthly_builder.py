@@ -140,7 +140,7 @@ class ChronicReportBuilder:
             (~merged_df['Config Item Name'].isin(all_existing_chronics))
         ].drop_duplicates(subset=['Config Item Name'])
         
-        # Check which ones have been through the 60-day → 30-day progression
+        # Check which ones have been through the 60-day -> 30-day progression
         # (from previous month's 30-day list, indicating they've completed the progression)
         # Adding 444282783 as demo new chronic for May report (not on regional list)
         completed_progression_circuits = existing_chronics['perf_30_day'] + ['444282783']
@@ -149,7 +149,7 @@ class ChronicReportBuilder:
         ]
         
         print(f"Found {len(potential_new_chronics)} circuits at 3rd month")
-        print(f"Of these, {len(new_chronics)} have completed 60→30 day progression")
+        print(f"Of these, {len(new_chronics)} have completed 60->30 day progression")
         
         # Filter out name variations that match existing circuits
         print("Filtering name variations...")
