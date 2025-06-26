@@ -215,7 +215,7 @@ class ChronicReportBuilder:
         
         # Print excluded variations
         for exclusion in excluded_variations:
-            print(f"🔄 Excluded variation: {exclusion}")
+            print(f"[EXCLUDED] Excluded variation: {exclusion}")
         
         # Convert back to DataFrame
         if filtered_new_chronics:
@@ -1292,11 +1292,11 @@ class ChronicReportBuilder:
             json.dump(summary_data, f, indent=2, default=str)
         
         print(f"Reports generated in {output_dir}")
-        print(f"✅ Chronic Corner (Word): {corner_word_output}")
-        print(f"✅ Circuit Report (Word): {circuit_word_output}")
-        print(f"✅ Chronic List (Text): {text_summary_output}")
+        print(f"[SUCCESS] Chronic Corner (Word): {corner_word_output}")
+        print(f"[SUCCESS] Circuit Report (Word): {circuit_word_output}")
+        print(f"[SUCCESS] Chronic List (Text): {text_summary_output}")
         if pdf_output and Path(pdf_output).exists():
-            print(f"✅ Circuit Report (PDF): {pdf_output}")
+            print(f"[SUCCESS] Circuit Report (PDF): {pdf_output}")
         
         return corner_word_output, circuit_word_output, pdf_output
 
@@ -1331,13 +1331,13 @@ def main():
             args.output
         )
         
-        print(f"✅ Chronic Corner (Word): {corner_file}")
-        print(f"✅ Circuit Report (Word): {circuit_word_file}")
+        print(f"[SUCCESS] Chronic Corner (Word): {corner_file}")
+        print(f"[SUCCESS] Circuit Report (Word): {circuit_word_file}")
         if pdf_file and Path(pdf_file).exists():
-            print(f"✅ Circuit Report (PDF): {pdf_file}")
+            print(f"[SUCCESS] Circuit Report (PDF): {pdf_file}")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[ERROR] Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
