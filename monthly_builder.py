@@ -60,14 +60,28 @@ class ChronicReportBuilder:
     def load_crosstab_data(self, impacts_file, counts_file):
         """Load and process the Tableau export files"""
         print(f"Loading impact data from {impacts_file}")
-        impacts_df = pd.read_excel(impacts_file)
+        if impacts_file.lower().endswith('.csv'):
+            impacts_df = pd.read_csv(impacts_file)
+        else:
+            impacts_df = pd.read_excel(impacts_file)
         # Fix: Trim column headers to handle trailing spaces
         impacts_df.columns = impacts_df.columns.str.strip()
         
+        # Handle column aliasing for Config Item Name
+        if 'Configuration Item Name' in impacts_df.columns:
+            impacts_df = impacts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
+        
         print(f"Loading counts data from {counts_file}")  
-        counts_df = pd.read_excel(counts_file)
+        if counts_file.lower().endswith('.csv'):
+            counts_df = pd.read_csv(counts_file)
+        else:
+            counts_df = pd.read_excel(counts_file)
         # Fix: Trim column headers to handle trailing spaces
         counts_df.columns = counts_df.columns.str.strip()
+        
+        # Handle column aliasing for Config Item Name
+        if 'Configuration Item Name' in counts_df.columns:
+            counts_df = counts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
         
         # Clean numeric columns that might have comma formatting
         for col in impacts_df.columns:
