@@ -21,10 +21,10 @@ def analyze_excel_file(filepath):
         print(f"Error reading {filepath}: {e}")
 
 if __name__ == "__main__":
-    files = [
-        "/Users/teffy/Downloads/Impacts by CI Type Crosstab (2) (1).xlsx",
-        "/Users/teffy/Downloads/Count Months Chronic (1) (1).xlsx"
-    ]
-    
-    for file in files:
-        analyze_excel_file(file)
+    if len(sys.argv) > 1:
+        # Use command line arguments if provided
+        for file_path in sys.argv[1:]:
+            analyze_excel_file(file_path)
+    else:
+        print("Usage: python analyze_data.py <excel_file1> [excel_file2] ...")
+        print("Example: python analyze_data.py impacts.xlsx counts.xlsx")

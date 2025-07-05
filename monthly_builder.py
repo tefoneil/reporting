@@ -17,33 +17,17 @@ from docx import Document
 from docx.shared import Inches, Pt
 import matplotlib.pyplot as plt
 import seaborn as sns
-try:
-    from pptx import Presentation
-    from pptx.util import Inches as PptxInches, Pt as PptxPt
-    from pptx.enum.text import PP_ALIGN
-    from pptx.dml.color import RGBColor as PptxRGBColor
-except ImportError:
-    print("Warning: python-pptx not found. PowerPoint generation will be skipped.")
-    Presentation = None
 
-# Import the redactor
-try:
-    from scrub import process_file  # Assuming this is the main function from scrub.py
-except ImportError:
-    print("Warning: Could not import redactor. IP masking will be skipped.")
-    process_file = None
 
 class ChronicReportBuilder:
-    def __init__(self, mask_level='alias', exclude_regional=False, show_indicators=False):
+    def __init__(self, exclude_regional=False, show_indicators=True):
         """
         Initialize the chronic report builder
         
         Args:
-            mask_level: 'none', 'partial', 'alias', or 'remove'
             exclude_regional: Flag to exclude regional circuits from new chronic detection
             show_indicators: Show (C) and (R) flags in reports (default True)
         """
-        self.mask_level = mask_level
         self.exclude_regional = exclude_regional
         self.show_indicators = show_indicators
         self.service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
@@ -1029,128 +1013,6 @@ class ChronicReportBuilder:
         doc.save(output_path)
         return output_path
     
-    def generate_powerpoint_report(self, metrics, chronic_data, charts, output_path):
-        """Generate PowerPoint with first half of Circuit Report + MTBF chart"""
-        
-        if not Presentation:
-            print("PowerPoint generation skipped - python-pptx not available")
-            return None
-            
-        prs = Presentation()
-        
-        # Slide 1: Title slide
-        title_slide = prs.slides.add_slide(prs.slide_layouts[0])  # Title slide layout
-        title = title_slide.shapes.title
-        subtitle = title_slide.placeholders[1]
-        
-        title.text = "Chronic Circuit Report"
-        subtitle.text = "March - May 2025"
-        
-        # Slide 2: Metrics Overview with special formatted table
-        metrics_slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
-        
-        # Add title
-        title_shape = metrics_slide.shapes.add_textbox(PptxInches(1), PptxInches(0.5), PptxInches(8), PptxInches(1))
-        title_frame = title_shape.text_frame
-        title_frame.text = "Key Metrics Overview"
-        title_para = title_frame.paragraphs[0]
-        title_para.font.size = PptxPt(32)
-        title_para.font.bold = True
-        
-        # Add 4-column metrics table (same style as reports)
-        table = metrics_slide.shapes.add_table(1, 4, PptxInches(1), PptxInches(2), PptxInches(8), PptxInches(2)).table
-        
-        # Calculate total tickets from all circuits
-        merged_df = chronic_data['merged_data']
-        if 'Distinct count of Inc Nbr' in merged_df.columns:
-            total_tickets = int(merged_df['Distinct count of Inc Nbr'].sum())
-        else:
-            total_tickets = sum(metrics.get('top5_tickets', {}).values()) if metrics.get('top5_tickets') else 0
-            
-        avg_availability = sum(metrics.get('bottom5_availability', {}).values()) / len(metrics.get('bottom5_availability', {})) if metrics.get('bottom5_availability') else 95.0
-        
-        # Populate table cells
-        table.cell(0, 0).text = f"64\nTotal Circuits\nTracked"
-        table.cell(0, 1).text = f"{total_tickets}\nTotal Tickets\nLogged"
-        table.cell(0, 2).text = f"{avg_availability:.1f}%\nAverage\nAvailability"
-        table.cell(0, 3).text = f"{metrics.get('avg_mtbf_days', 20):.1f}\nAverage MTBF\n(Days)"
-        
-        # Style the table cells
-        for row in table.rows:
-            for cell in row.cells:
-                # Center align text
-                for paragraph in cell.text_frame.paragraphs:
-                    paragraph.alignment = PP_ALIGN.CENTER
-                    for run in paragraph.runs:
-                        run.font.size = PptxPt(14)
-                        run.font.bold = True
-                
-                # Set background color to match reports (#E2E5FF)
-                fill = cell.fill
-                fill.solid()
-                fill.fore_color.rgb = PptxRGBColor(226, 229, 255)  # #E2E5FF
-        
-        # Slide 3: Executive Summary
-        exec_slide = prs.slides.add_slide(prs.slide_layouts[1])  # Title and Content layout
-        exec_title = exec_slide.shapes.title
-        exec_content = exec_slide.placeholders[1]
-        
-        exec_title.text = "Executive Summary"
-        
-        # Key takeaways
-        worst_mtbf = min(metrics.get('bottom5_mtbf', {}).values()) if metrics.get('bottom5_mtbf') else 0
-        worst_availability = min(metrics.get('bottom5_availability', {}).values()) if metrics.get('bottom5_availability') else 95
-        highest_cost = max(metrics.get('top5_cost', {}).values()) if metrics.get('top5_cost') else 0
-        
-        takeaways = [
-            f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month, requiring immediate attention and classification.",
-            f"• Lowest performing circuit shows {worst_mtbf:.1f} days MTBF and {worst_availability:.1f}% availability, indicating significant reliability issues.",
-            f"• Highest impact circuit generated ${highest_cost:,.0f} in cost to serve, representing major operational expense."
-        ]
-        
-        exec_tf = exec_content.text_frame
-        exec_tf.text = "Key Takeaways"
-        for takeaway in takeaways:
-            p = exec_tf.add_paragraph()
-            p.text = takeaway
-            p.level = 1
-        
-        # Add Recommendations
-        rec_p = exec_tf.add_paragraph()
-        rec_p.text = "Recommendations"
-        rec_p.font.bold = True
-        rec_p.font.size = PptxPt(18)
-        
-        recommendations = [
-            "• Review the top 5 circuits by lowest MTBF and investigate root causes for frequent failures.",
-            "• Prioritize vendor engagement for circuits showing consistent availability degradation.",
-            "• Implement proactive monitoring for new chronic circuits to prevent escalation."
-        ]
-        
-        for rec in recommendations:
-            p = exec_tf.add_paragraph()
-            p.text = rec
-            p.level = 1
-        
-        # Slide 4: MTBF Chart
-        if charts and 'bottom5_mtbf' in charts:
-            chart_slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
-            
-            # Add title
-            chart_title_shape = chart_slide.shapes.add_textbox(PptxInches(1), PptxInches(0.5), PptxInches(8), PptxInches(1))
-            chart_title_frame = chart_title_shape.text_frame
-            chart_title_frame.text = "Bottom 5 Circuits by MTBF (Worst Performing)"
-            chart_title_para = chart_title_frame.paragraphs[0]
-            chart_title_para.font.size = PptxPt(24)
-            chart_title_para.font.bold = True
-            
-            # Add chart image
-            chart_path = charts['bottom5_mtbf']
-            if chart_path.exists():
-                chart_slide.shapes.add_picture(str(chart_path), PptxInches(1), PptxInches(1.5), width=PptxInches(8))
-        
-        prs.save(output_path)
-        return output_path
     
     def populate_word_template(self, template_path, metrics, charts, output_path):
         """Populate the Word template with calculated metrics"""
@@ -1218,18 +1080,6 @@ class ChronicReportBuilder:
             print("LibreOffice not found. PDF conversion skipped.")
             return None
     
-    def run_redactor(self, file_path):
-        """Apply IP masking using the redactor"""
-        if process_file and self.mask_level != 'none':
-            try:
-                # This would need to be adapted based on scrub.py's actual interface
-                redacted_path = str(file_path).replace('.', f'.{self.mask_level}.')
-                # process_file(file_path, redacted_path, mask_level=self.mask_level)
-                return redacted_path
-            except Exception as e:
-                print(f"Redaction failed: {e}")
-                return file_path
-        return file_path
     
     def build_monthly_report(self, impacts_file, counts_file, template_file, output_dir):
         """Main pipeline to build the monthly report"""
@@ -1271,13 +1121,6 @@ class ChronicReportBuilder:
         
         # PowerPoint generation removed per user request
         
-        # Apply redaction if needed
-        if self.mask_level != 'none':
-            corner_word_output = self.run_redactor(corner_word_output)
-            circuit_word_output = self.run_redactor(circuit_word_output)
-            if pdf_output and Path(pdf_output).exists():
-                pdf_output = self.run_redactor(pdf_output)
-        
         # Generate text summary
         text_summary_output = self.generate_text_summary(chronic_data, metrics, output_dir, month_str)
         
@@ -1307,8 +1150,6 @@ def main():
     parser.add_argument('--counts', required=True, help='Path to counts Excel file') 
     parser.add_argument('--template', help='Path to Word template file (optional)')
     parser.add_argument('--output', default='./final_output', help='Output directory')
-    parser.add_argument('--mask-level', default='alias', choices=['none', 'partial', 'alias', 'remove'], 
-                       help='IP masking level')
     parser.add_argument('--exclude-regional', action='store_true',
                        help='Exclude regional circuits from new chronic detection')
     parser.add_argument('--show-indicators', action='store_true',
@@ -1316,7 +1157,7 @@ def main():
     
     args = parser.parse_args()
     
-    builder = ChronicReportBuilder(mask_level=args.mask_level, exclude_regional=args.exclude_regional, show_indicators=args.show_indicators)
+    builder = ChronicReportBuilder(exclude_regional=args.exclude_regional, show_indicators=args.show_indicators)
     
     try:
         # Use impacts A file (for now, impacts B is optional and not used in current logic)
