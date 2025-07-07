@@ -5,6 +5,18 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] – 2025-07-07
+
+### Changed
+- **Availability significant change threshold**: Raised from 2% → **5%** to reduce noise in trend analysis
+- Added `MR_THRESH_AVAIL_PCT` environment variable for configurable availability threshold
+- Other thresholds unchanged: Tickets ≥3, Cost ≥$1,000, MTBF ≥0.5 days, Rank ≥2 positions
+
+### Technical Details
+- `AVAIL_THRESH_PCT` constant now controls all availability change detection
+- Applied consistently across ranking analysis and strategic insights
+- Environment variable allows field tuning without code changes
+
 ## [0.1.5-patch1] – 2025-07-07
 
 ### Fixed

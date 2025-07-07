@@ -25,6 +25,7 @@ from analyze_data import get_rolling_ticket_total
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
 DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy mode, 1 = dynamic mode
+AVAIL_THRESH_PCT = float(os.getenv("MR_THRESH_AVAIL_PCT", 5.0))  # Availability significant change threshold
 
 
 def canonical_id(raw: str) -> str:
@@ -833,6 +834,378 @@ class ChronicReportBuilder:
         
         return charts
     
+    def generate_trend_analysis(self, current_month_str: str, output_dir: Path) -> str:
+        """Generate comprehensive chart-based month-over-month trend analysis"""
+        try:
+            # Find previous month's data
+            json_files = list(output_dir.glob('chronic_summary_*.json'))
+            json_files = [f for f in json_files if f.name != f'chronic_summary_{current_month_str}.json']
+            
+            if not json_files:
+                return "No previous month data available for trend analysis."
+            
+            # Get the most recent previous month
+            previous_file = sorted(json_files)[-1]
+            current_file = output_dir / f'chronic_summary_{current_month_str}.json'
+            
+            if not current_file.exists():
+                return "Current month data not found for trend analysis."
+            
+            # Load data
+            with open(previous_file, 'r') as f:
+                prev_data = json.load(f)
+            with open(current_file, 'r') as f:
+                curr_data = json.load(f)
+            
+            # Extract month names
+            prev_month = previous_file.name.replace('chronic_summary_', '').replace('.json', '').replace('_', ' ')
+            curr_month = current_month_str.replace('_', ' ')
+            
+            # Analyze trends
+            trends = []
+            trends.append(f"# MONTHLY PERFORMANCE TREND ANALYSIS")
+            trends.append(f"## {prev_month} → {curr_month}")
+            trends.append("=" * 70)
+            trends.append("")
+            
+            # Overall circuit health summary
+            prev_total = prev_data.get('metrics', {}).get('total_chronic_circuits', 0)
+            curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)
+            total_change = curr_total - prev_total
+            
+            trends.append("## 📊 NETWORK HEALTH OVERVIEW")
+            trends.append(f"• **Total Chronic Circuits**: {prev_total} → {curr_total} ({total_change:+d} change)")
+            trends.append(f"• **New Chronics Identified**: {curr_data.get('metrics', {}).get('new_chronic_count', 0)}")
+            
+            # Calculate circuit status distribution changes
+            prev_consistent = len(prev_data.get('chronic_data', {}).get('existing_chronics', {}).get('chronic_consistent', []))
+            curr_consistent = len(curr_data.get('chronic_data', {}).get('existing_chronics', {}).get('chronic_consistent', []))
+            consistent_change = curr_consistent - prev_consistent
+            
+            trends.append(f"• **Consistent Circuits**: {prev_consistent} → {curr_consistent} ({consistent_change:+d})")
+            trends.append("")
+            
+            # CHART-BASED ANALYSIS - TOP TICKET GENERATORS
+            trends.append("## 🔥 TOP TICKET GENERATORS ANALYSIS")
+            prev_top5_tickets = prev_data.get('metrics', {}).get('top5_tickets', {})
+            curr_top5_tickets = curr_data.get('metrics', {}).get('top5_tickets', {})
+            
+            trends.extend(self._analyze_ranking_changes(
+                "Ticket Generators", prev_top5_tickets, curr_top5_tickets, 
+                is_higher_worse=True, unit="tickets"
+            ))
+            
+            # CHART-BASED ANALYSIS - COST CIRCUITS
+            trends.append("## 💰 COST TO SERVE ANALYSIS")
+            prev_top5_cost = prev_data.get('metrics', {}).get('top5_cost', {})
+            curr_top5_cost = curr_data.get('metrics', {}).get('top5_cost', {})
+            
+            trends.extend(self._analyze_ranking_changes(
+                "Cost Circuits", prev_top5_cost, curr_top5_cost,
+                is_higher_worse=True, unit="$", is_currency=True
+            ))
+            
+            # CHART-BASED ANALYSIS - AVAILABILITY 
+            trends.append("## 📉 AVAILABILITY PERFORMANCE ANALYSIS")
+            prev_bottom5_avail = prev_data.get('metrics', {}).get('bottom5_availability', {})
+            curr_bottom5_avail = curr_data.get('metrics', {}).get('bottom5_availability', {})
+            
+            trends.extend(self._analyze_ranking_changes(
+                "Worst Availability", prev_bottom5_avail, curr_bottom5_avail,
+                is_higher_worse=False, unit="%", threshold=AVAIL_THRESH_PCT
+            ))
+            
+            # CHART-BASED ANALYSIS - MTBF
+            trends.append("## ⚡ RELIABILITY (MTBF) ANALYSIS") 
+            prev_bottom5_mtbf = prev_data.get('metrics', {}).get('bottom5_mtbf', {})
+            curr_bottom5_mtbf = curr_data.get('metrics', {}).get('bottom5_mtbf', {})
+            
+            trends.extend(self._analyze_ranking_changes(
+                "Worst MTBF", prev_bottom5_mtbf, curr_bottom5_mtbf,
+                is_higher_worse=False, unit="days", threshold=1.0
+            ))
+            
+            # STRATEGIC RECOMMENDATIONS
+            trends.append("## 🎯 STRATEGIC RECOMMENDATIONS")
+            red_flags, improvements, new_concerns = self._generate_strategic_insights(
+                prev_data, curr_data
+            )
+            
+            if red_flags:
+                trends.append("### 🚨 IMMEDIATE ATTENTION REQUIRED:")
+                trends.extend([f"• {flag}" for flag in red_flags])
+                trends.append("")
+            
+            if improvements:
+                trends.append("### 🎉 SUCCESS STORIES:")
+                trends.extend([f"• {improvement}" for improvement in improvements])
+                trends.append("")
+            
+            if new_concerns:
+                trends.append("### 👀 EMERGING PATTERNS:")
+                trends.extend([f"• {concern}" for concern in new_concerns])
+                trends.append("")
+            
+            # Overall network trend assessment
+            trends.append("### 📈 OVERALL NETWORK TREND:")
+            if total_change > 2:
+                trends.append(f"• **Growing chronic problem** - {total_change} new chronic circuits require root cause analysis")
+            elif total_change > 0:
+                trends.append(f"• **Slight degradation** - {total_change} additional chronic circuits, monitor closely")
+            elif total_change < -2:
+                trends.append(f"• **Significant improvement** - {abs(total_change)} fewer chronic circuits, maintenance efforts paying off")
+            elif total_change < 0:
+                trends.append(f"• **Gradual improvement** - {abs(total_change)} fewer chronic circuits")
+            else:
+                trends.append("• **Stable chronic population** - consistent with previous month")
+            
+            return "\n".join(trends)
+            
+        except Exception as e:
+            return f"Error generating trend analysis: {e}"
+    
+    def _analyze_ranking_changes(self, category_name: str, prev_data: dict, curr_data: dict, 
+                                is_higher_worse: bool = True, unit: str = "", threshold: float = None,
+                                is_currency: bool = False) -> list:
+        """Analyze ranking changes between two periods for a specific metric"""
+        analysis = []
+        
+        if not prev_data or not curr_data:
+            analysis.append(f"• Insufficient data for {category_name} comparison")
+            analysis.append("")
+            return analysis
+        
+        # Create ranking maps (circuit -> position)
+        prev_ranks = {self._clean_circuit_name(circuit): i+1 for i, circuit in enumerate(prev_data.keys())}
+        curr_ranks = {self._clean_circuit_name(circuit): i+1 for i, circuit in enumerate(curr_data.keys())}
+        
+        # Clean data for value comparison
+        prev_values = {self._clean_circuit_name(k): v for k, v in prev_data.items()}
+        curr_values = {self._clean_circuit_name(k): v for k, v in curr_data.items()}
+        
+        # Set automatic threshold if not provided
+        if threshold is None:
+            if "tickets" in unit.lower():
+                threshold = 3
+            elif is_currency:
+                threshold = 1000  # $1000
+            elif "%" in unit:
+                threshold = AVAIL_THRESH_PCT   # Use configurable availability threshold
+            else:
+                threshold = 0.5   # days for MTBF
+        
+        # Track movers and significant changes
+        big_movers = []
+        new_entries = []
+        graduates = []
+        significant_changes = []
+        
+        # Analyze position changes
+        all_circuits = set(prev_ranks.keys()) | set(curr_ranks.keys())
+        
+        for circuit in all_circuits:
+            prev_rank = prev_ranks.get(circuit)
+            curr_rank = curr_ranks.get(circuit)
+            prev_value = prev_values.get(circuit, 0)
+            curr_value = curr_values.get(circuit, 0)
+            
+            # New entries to top/bottom 5
+            if prev_rank is None and curr_rank is not None:
+                value_str = self._format_value(curr_value, unit, is_currency)
+                new_entries.append(f"**{circuit}** entered at #{curr_rank} ({value_str})")
+            
+            # Graduates (left top/bottom 5)
+            elif prev_rank is not None and curr_rank is None:
+                value_str = self._format_value(prev_value, unit, is_currency)
+                graduates.append(f"**{circuit}** improved out of worst performers (was #{prev_rank})")
+            
+            # Position changes within top/bottom 5
+            elif prev_rank is not None and curr_rank is not None and prev_rank != curr_rank:
+                rank_change = prev_rank - curr_rank  # Positive = moved up in ranking (worse)
+                direction = "worsened" if rank_change < 0 else "improved"
+                
+                prev_val_str = self._format_value(prev_value, unit, is_currency)
+                curr_val_str = self._format_value(curr_value, unit, is_currency)
+                
+                if abs(rank_change) >= 2:  # Significant position change
+                    big_movers.append(f"**{circuit}** {direction} #{prev_rank} → #{curr_rank} ({prev_val_str} → {curr_val_str})")
+            
+            # Significant value changes (same circuit in both periods)
+            if prev_rank is not None and curr_rank is not None:
+                value_change = curr_value - prev_value
+                percent_change = (value_change / prev_value * 100) if prev_value != 0 else 0
+                
+                if abs(value_change) >= threshold or abs(percent_change) >= 20:
+                    change_str = f"{value_change:+.1f}" if not is_currency else f"${value_change:+,.0f}"
+                    direction_word = "increased" if value_change > 0 else "decreased"
+                    
+                    if is_higher_worse:
+                        impact = "⚠️ DEGRADED" if value_change > 0 else "✅ IMPROVED"
+                    else:
+                        impact = "✅ IMPROVED" if value_change > 0 else "⚠️ DEGRADED"
+                    
+                    significant_changes.append(
+                        f"**{circuit}** {direction_word} by {change_str}{unit} ({percent_change:+.1f}%) {impact}"
+                    )
+        
+        # Format analysis results
+        if big_movers:
+            analysis.append("### 📊 Major Ranking Changes:")
+            analysis.extend([f"• {mover}" for mover in big_movers])
+            analysis.append("")
+        
+        if new_entries:
+            analysis.append("### 🚨 New Problem Circuits:")
+            analysis.extend([f"• {entry}" for entry in new_entries])
+            analysis.append("")
+        
+        if graduates:
+            analysis.append("### 🎉 Improved Circuits:")
+            analysis.extend([f"• {grad}" for grad in graduates])
+            analysis.append("")
+        
+        if significant_changes:
+            analysis.append("### 📈 Significant Value Changes:")
+            analysis.extend([f"• {change}" for change in significant_changes])
+            analysis.append("")
+        
+        if not any([big_movers, new_entries, graduates, significant_changes]):
+            analysis.append(f"• **{category_name}**: No significant changes from previous month")
+            analysis.append("")
+        
+        return analysis
+    
+    def _clean_circuit_name(self, circuit_name: str) -> str:
+        """Remove indicators and clean circuit name for comparison"""
+        return circuit_name.split(' ')[0] if circuit_name else ""
+    
+    def _format_value(self, value: float, unit: str, is_currency: bool = False) -> str:
+        """Format value with appropriate unit"""
+        if is_currency:
+            return f"${value:,.0f}"
+        elif "%" in unit:
+            return f"{value:.1f}%"
+        elif "days" in unit:
+            return f"{value:.1f} days"
+        else:
+            return f"{value:.0f}{unit}"
+    
+    def _generate_strategic_insights(self, prev_data: dict, curr_data: dict) -> tuple:
+        """Generate strategic insights for recommendations"""
+        red_flags = []
+        improvements = []
+        new_concerns = []
+        
+        # Analyze circuit count trends
+        prev_total = prev_data.get('metrics', {}).get('total_chronic_circuits', 0)
+        curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)
+        
+        if curr_total - prev_total >= 3:
+            red_flags.append(f"Chronic circuit count increased by {curr_total - prev_total} - potential systemic issues")
+        
+        # Check for new high-cost circuits
+        prev_costs = set(prev_data.get('metrics', {}).get('top5_cost', {}).keys())
+        curr_costs = set(curr_data.get('metrics', {}).get('top5_cost', {}).keys())
+        new_cost_circuits = curr_costs - prev_costs
+        
+        if new_cost_circuits:
+            new_concerns.append(f"New high-cost circuits emerged: {', '.join([self._clean_circuit_name(c) for c in new_cost_circuits])}")
+        
+        # Check for availability improvements
+        prev_avail = prev_data.get('metrics', {}).get('bottom5_availability', {})
+        curr_avail = curr_data.get('metrics', {}).get('bottom5_availability', {})
+        
+        improved_avail = []
+        for circuit in set(prev_avail.keys()) & set(curr_avail.keys()):
+            if curr_avail[circuit] - prev_avail[circuit] >= AVAIL_THRESH_PCT:  # Significant improvement
+                improved_avail.append(self._clean_circuit_name(circuit))
+        
+        if improved_avail:
+            improvements.append(f"Significant availability improvements: {', '.join(improved_avail)}")
+        
+        # Check for ticket volume spikes
+        prev_tickets = prev_data.get('metrics', {}).get('top5_tickets', {})
+        curr_tickets = curr_data.get('metrics', {}).get('top5_tickets', {})
+        
+        ticket_spikes = []
+        for circuit in set(prev_tickets.keys()) & set(curr_tickets.keys()):
+            if curr_tickets[circuit] - prev_tickets[circuit] >= 10:  # 10+ ticket increase
+                ticket_spikes.append(f"{self._clean_circuit_name(circuit)} (+{curr_tickets[circuit] - prev_tickets[circuit]} tickets)")
+        
+        if ticket_spikes:
+            red_flags.append(f"Major ticket volume spikes: {', '.join(ticket_spikes)}")
+        
+        return red_flags, improvements, new_concerns
+    
+    def generate_trend_analysis_word(self, month_str: str, output_dir: Path) -> Path:
+        """Generate trend analysis as a Word document"""
+        trend_text = self.generate_trend_analysis(month_str, output_dir)
+        
+        if "No previous month data" in trend_text or "Error" in trend_text:
+            # Skip Word generation if no data or error
+            return None
+        
+        doc = Document()
+        doc.add_heading('Monthly Chronic Circuit Trend Analysis', 0)
+        
+        # Parse the trend analysis text and format it nicely
+        lines = trend_text.split('\n')
+        current_section = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('# '):
+                # Main title - already added above
+                continue
+            elif line.startswith('='):
+                # Skip separator lines
+                continue
+            elif line.startswith('## '):
+                # Section heading
+                section_title = line.replace('## ', '')
+                doc.add_heading(section_title, level=1)
+                current_section = section_title.lower()
+            elif line.startswith('### '):
+                # Subsection heading
+                subsection_title = line.replace('### ', '')
+                doc.add_heading(subsection_title, level=2)
+            elif line.startswith('• '):
+                # Bullet point
+                p = doc.add_paragraph()
+                p.style = 'List Bullet'
+                p.add_run(line[2:])  # Remove bullet marker
+            elif line and not line.startswith('#'):
+                # Regular text
+                if ':' in line and current_section in ['executive summary', 'top ticket generators']:
+                    # Format numbered lists and key-value pairs
+                    parts = line.split(':')
+                    p = doc.add_paragraph()
+                    if line[0].isdigit():
+                        p.style = 'List Number'
+                        p.add_run(line)
+                    else:
+                        run = p.add_run(parts[0] + ':')
+                        run.bold = True
+                        if len(parts) > 1:
+                            p.add_run(' ' + ':'.join(parts[1:]))
+                else:
+                    doc.add_paragraph(line)
+        
+        # Add footer with generation timestamp
+        doc.add_page_break()
+        footer_p = doc.add_paragraph()
+        footer_p.add_run(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | ")
+        footer_p.add_run("Monthly Reporting System v0.1.6").italic = True
+        
+        # Save document
+        output_path = output_dir / f"Monthly_Trend_Analysis_{month_str}.docx"
+        doc.save(output_path)
+        
+        return output_path
+    
     def generate_chronic_corner_word(self, metrics, chronic_data, output_path, charts=None, month_str=None):
         """Generate Chronic Corner format as Word document - exact format match"""
         
@@ -1386,9 +1759,18 @@ class ChronicReportBuilder:
         # Generate text summary
         text_summary_output = self.generate_text_summary(chronic_data, metrics, output_dir, month_str)
         
+        # Generate trend analysis
+        trend_analysis = self.generate_trend_analysis(month_str, output_dir)
+        trend_analysis_output = output_dir / f"monthly_trend_analysis_{month_str}.txt"
+        with open(trend_analysis_output, 'w') as f:
+            f.write(trend_analysis)
+        
+        # Generate trend analysis Word document
+        trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
+        
         # Export data summary
         summary_data = {
-            'version': '0.1.5-patch1',
+            'version': '0.1.6',
             'consistency_mode': 'hybrid',
             'baseline_hotfix': 'new_chronic_promotion_fix',
             'chronic_data': chronic_data,
@@ -1403,6 +1785,8 @@ class ChronicReportBuilder:
         print(f"[SUCCESS] Chronic Corner (Word): {corner_word_output}")
         print(f"[SUCCESS] Circuit Report (Word): {circuit_word_output}")
         print(f"[SUCCESS] Chronic List (Text): {text_summary_output}")
+        if trend_word_output:
+            print(f"[SUCCESS] Trend Analysis (Word): {trend_word_output}")
         if pdf_output and Path(pdf_output).exists():
             print(f"[SUCCESS] Circuit Report (PDF): {pdf_output}")
         
