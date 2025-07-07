@@ -5,6 +5,11 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-audit] – 2025-07-08
+
+### Added
+- **Audit trail enhancement**: Added `raw_ticket_count_crosstab` field to circuit JSON entries for transparency
+
 ## [0.1.8] – 2025-07-08
 
 ### Changed

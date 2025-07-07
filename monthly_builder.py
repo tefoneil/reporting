@@ -313,6 +313,13 @@ class ChronicReportBuilder:
         # Convert outage duration from seconds to hours
         merged_df['ImpactHours'] = merged_df['Outage Duration'] / 3600
         
+        # v0.1.8-audit: Create raw ticket counts dictionary for audit trail
+        raw_counts = (
+            impacts_df.groupby("canonical_id")["Distinct count of Inc Nbr"]
+                      .sum()
+                      .to_dict()
+        )
+        
         # Load baseline status for hybrid consistency mode
         baseline_status, baseline_ids = self.load_baseline_status()
         
@@ -352,7 +359,8 @@ class ChronicReportBuilder:
             canonical = canonical_id(circuit_id)
             rolling_tickets = get_rolling_ticket_total(canonical, merged_df)
             circuit_ticket_data[circuit_id] = {
-                'rolling_ticket_total': rolling_tickets
+                'rolling_ticket_total': rolling_tickets,
+                'raw_ticket_count_crosstab': raw_counts.get(canonical, 0)
             }
             
             # Apply hybrid logic: baseline status takes precedence (using canonical lookup)
