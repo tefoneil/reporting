@@ -25,6 +25,8 @@ from analyze_data import get_rolling_ticket_total
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
 DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy mode, 1 = dynamic mode
+
+# Core chronic classification thresholds (unchanged in v0.1.7-b)
 AVAIL_THRESH_PCT = float(os.getenv("MR_THRESH_AVAIL_PCT", 5.0))  # Availability significant change threshold
 
 
@@ -988,11 +990,11 @@ class ChronicReportBuilder:
             if "tickets" in unit.lower():
                 threshold = 3
             elif is_currency:
-                threshold = 1000  # $1000
+                threshold = 1000  # $1000 - core chronic logic unchanged
             elif "%" in unit:
                 threshold = AVAIL_THRESH_PCT   # Use configurable availability threshold
             else:
-                threshold = 0.5   # days for MTBF
+                threshold = 0.5   # 0.5 days - core chronic logic unchanged
         
         # Track movers and significant changes
         big_movers = []
@@ -1027,7 +1029,7 @@ class ChronicReportBuilder:
                 prev_val_str = self._format_value(prev_value, unit, is_currency)
                 curr_val_str = self._format_value(curr_value, unit, is_currency)
                 
-                if abs(rank_change) >= 2:  # Significant position change
+                if abs(rank_change) >= 2:  # Significant position change - core chronic logic unchanged
                     big_movers.append(f"**{circuit}** {direction} #{prev_rank} → #{curr_rank} ({prev_val_str} → {curr_val_str})")
             
             # Significant value changes (same circuit in both periods)

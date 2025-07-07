@@ -5,6 +5,24 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7-b] – 2025-07-08
+
+### Changed
+- Lower thresholds apply **only** inside Monthly Trend Analysis 
+  (tickets ≥ 1, cost ≥ $500, availability ≥ 2 pp, MTBF ≥ 0.2 days, rank ≥ 1).
+- Core chronic thresholds remain: tickets ≥ 6, cost ≥ $1 000, availability ≥ 5 pp, MTBF ≥ 0.5 days, rank ≥ 2.
+- Added warning when prior-month summary JSON is missing.
+
+### Technical Details
+- New `TREND_THRESH` dict in `analyze_trends.py` with environment variable support:
+  - `MR_TREND_TICKETS` (default: 1)
+  - `MR_TREND_COST_USD` (default: 500)
+  - `MR_TREND_AVAIL_PCT` (default: 2.0)
+  - `MR_TREND_MTBF_DAYS` (default: 0.2)
+  - `MR_TREND_RANK` (default: 1)
+- Core chronic classification logic in `monthly_builder.py` unchanged
+- Chronic counts and tables remain stable; only trend analysis shows increased sensitivity
+
 ## [0.1.6] – 2025-07-07
 
 ### Changed
