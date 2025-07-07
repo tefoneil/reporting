@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""
+Utility functions for the Monthly Reporting system
+"""
+
+import re
+import json
+import hashlib
+import logging
+import statistics
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+def canonical_id(raw: str) -> str:
+    """
+    Extract canonical circuit ID using final v0.1.9 rules.
+    
+    Rules:
+    1. Strip everything after first '_', '/', or ' '
+    2. For digits-hyphen-letters suffix (e.g., 123-A), trim to digits only
+    
+    Examples:
+    - "123-A_456" → "123"
+    - "123-A" → "123" 
+    - "VID-1583" → "VID-1583" (no change - doesn't match digits-hyphen-letters pattern)
+    
+    Args:
+        raw: Raw circuit identifier string
+        
+    Returns:
+        str: Canonical circuit identifier
+    """
+    if not raw or not isinstance(raw, str):
+        return str(raw) if raw is not None else ""
+    
+    s = raw.strip()
+    
+    # 1) Strip everything after first _, /, or space
+    for delimiter in ("_", "/", " "):
+        if delimiter in s:
+            s = s.split(delimiter, 1)[0]
+    
+    # 2) Digits-hyphen-letters suffix => trim (e.g., 123-A → 123)
+    if re.match(r".*\d{3,}-[A-Za-z]{1,}$", s):
+        s = s.split("-", 1)[0]
+    
+    return s
+
+
+def warn_low_ticket_median(current_counts: List[int], previous_month_json_path: Optional[Path] = None) -> None:
+    """
+    Warn if ticket median drops significantly from previous month.
+    
+    Fires logging.warning if current median ≤ 1 and previous month median > 1.
+    
+    Args:
+        current_counts: List of current month ticket counts
+        previous_month_json_path: Path to previous month's JSON summary (optional)
+    """
+    if not current_counts:
+        return
+    
+    current_median = statistics.median(current_counts)
+    
+    # Only warn if current median is low
+    if current_median > 1:
+        return
+    
+    # Try to get previous month's median
+    previous_median = None
+    if previous_month_json_path and previous_month_json_path.exists():
+        try:
+            with open(previous_month_json_path, 'r') as f:
+                prev_data = json.load(f)
+            
+            # Extract raw ticket counts from circuit_ticket_data if available
+            circuit_data = prev_data.get('chronic_data', {}).get('circuit_ticket_data', {})
+            if circuit_data:
+                prev_counts = [
+                    data.get('raw_ticket_count_crosstab', 0) 
+                    for data in circuit_data.values()
+                    if isinstance(data, dict)
+                ]
+                if prev_counts:
+                    previous_median = statistics.median(prev_counts)
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logging.debug(f"Could not extract previous median from {previous_month_json_path}: {e}")
+    
+    # Fire warning if we have a significant drop
+    if previous_median is not None and previous_median > 1:
+        logging.warning(
+            f"Low ticket median detected: current={current_median:.1f}, "
+            f"previous={previous_median:.1f}. Data quality may be compromised."
+        )
+
+
+def validate_metadata(metadata: Dict) -> bool:
+    """
+    Validate that metadata contains all required keys.
+    
+    Args:
+        metadata: Dictionary to validate
+        
+    Returns:
+        bool: True if all required keys present
+    """
+    required_keys = {
+        'tool_version', 'python_version', 'git_commit', 
+        'run_timestamp', 'crosstab_sha256', 'counts_sha256'
+    }
+    
+    missing_keys = required_keys - set(metadata.keys())
+    if missing_keys:
+        logging.error(f"Missing required metadata keys: {missing_keys}")
+        return False
+    
+    return True
+
+
+class SHA256Cache:
+    """Simple file hash cache to avoid duplicate calculations."""
+    
+    def __init__(self):
+        self._cache = {}
+    
+    def get_file_hash(self, file_path: Path) -> str:
+        """
+        Get SHA256 hash of file, using cache if available.
+        
+        Args:
+            file_path: Path to file to hash
+            
+        Returns:
+            str: SHA256 hash in hexadecimal
+        """
+        str_path = str(file_path)
+        
+        # Check cache first
+        if str_path in self._cache:
+            return self._cache[str_path]
+        
+        # Calculate hash
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        
+        file_hash = sha256_hash.hexdigest()
+        self._cache[str_path] = file_hash
+        
+        return file_hash
+
+
+# Global SHA256 cache instance
+_sha_cache = SHA256Cache()
+
+
+def get_file_sha256(file_path: Path) -> str:
+    """
+    Get SHA256 hash of a file (cached).
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        str: SHA256 hash in hexadecimal
+    """
+    return _sha_cache.get_file_hash(file_path)

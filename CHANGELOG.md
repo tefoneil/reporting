@@ -5,6 +5,27 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] – 2025-07-08
+
+### Added
+- **Production hardening**: Frozen legacy list from May 2025 authoritative baseline
+- **Metadata block**: 6-key metadata in JSON output (tool_version, python_version, git_commit, run_timestamp, crosstab_sha256, counts_sha256)
+- **Low ticket median warning**: Banner alert when median drops from >1 to ≤1 tickets
+- **Comprehensive pytest suite**: 12 tests across 4 test classes validating canonical_id, ticket totals, baseline freeze, and banner warnings
+- **SHA256 file hashing**: Audit trail for input data integrity
+
+### Changed
+- **Canonical ID function**: Updated with simplified v0.1.9 rules (digits-hyphen-letters suffix trimming)
+- **Legacy status loading**: Now uses frozen `docs/frozen_legacy_list.json` as authoritative baseline
+- **Utils module**: Extracted shared utilities (canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256)
+
+### Technical Details
+- Frozen legacy list contains 36 circuits (8 consistent, 17 inconsistent, 11 media)
+- Git commit tracking for reproducibility
+- ISO timestamp format for run metadata
+- Cached SHA256 computation for performance
+- Pytest fixtures for test data management
+
 ## [0.1.8-audit] – 2025-07-08
 
 ### Added
