@@ -118,6 +118,20 @@ class ChronicReportBuilder:
         if 'Configuration Item Name' in impacts_df.columns:
             impacts_df = impacts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
         
+        # v0.1.8: Filter out test circuits
+        initial_count = len(impacts_df)
+        if 'Config Item Name' in impacts_df.columns:
+            # Filter CID_TEST circuits
+            test_filter = impacts_df['Config Item Name'].str.startswith('CID_TEST', na=False)
+            if 'Vendor' in impacts_df.columns:
+                # Also filter vendors containing 'Test'
+                test_filter |= impacts_df['Vendor'].str.contains('Test', case=False, na=False)
+            
+            impacts_df = impacts_df[~test_filter]
+            filtered_count = initial_count - len(impacts_df)
+            if filtered_count > 0:
+                print(f"Filtered out {filtered_count} test circuits from impacts data")
+        
         # Fix: Forward-fill blank month cells to prevent 0-ticket miscounts
         blank_percentage = 0
         if 'Inc Resolved At (Month / Year)' in impacts_df.columns:
@@ -143,6 +157,20 @@ class ChronicReportBuilder:
         if 'Configuration Item Name' in counts_df.columns:
             counts_df = counts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
         
+        # v0.1.8: Filter out test circuits from counts data too
+        initial_count = len(counts_df)
+        if 'Config Item Name' in counts_df.columns:
+            # Filter CID_TEST circuits
+            test_filter = counts_df['Config Item Name'].str.startswith('CID_TEST', na=False)
+            if 'Vendor' in counts_df.columns:
+                # Also filter vendors containing 'Test'
+                test_filter |= counts_df['Vendor'].str.contains('Test', case=False, na=False)
+            
+            counts_df = counts_df[~test_filter]
+            filtered_count = initial_count - len(counts_df)
+            if filtered_count > 0:
+                print(f"Filtered out {filtered_count} test circuits from counts data")
+        
         # Clean numeric columns that might have comma formatting
         for col in impacts_df.columns:
             if 'Duration' in col or 'Count' in col:
@@ -160,7 +188,21 @@ class ChronicReportBuilder:
         
         # Add numeric coercion data quality check for ticket counts
         ticket_column = 'Distinct count of Inc Nbr'
-        if ticket_column in counts_df.columns:
+        if ticket_column in impacts_df.columns:
+            # Ensure ticket column is numeric in impacts_df too
+            impacts_df[ticket_column] = pd.to_numeric(impacts_df[ticket_column], errors='coerce')
+            
+            # Check for non-numeric coercion failures
+            non_numeric_count = impacts_df[ticket_column].isna().sum()
+            total_ticket_rows = len(impacts_df)
+            non_numeric_ratio = (non_numeric_count / total_ticket_rows) if total_ticket_rows > 0 else 0
+            
+            # Store warning flag for GUI
+            self.ticket_coercion_warning = non_numeric_ratio > 0.10
+            
+            if non_numeric_count > 0:
+                print(f"Ticket count coercion: {non_numeric_count} non-numeric values ({non_numeric_ratio:.1%} of data)")
+        elif ticket_column in counts_df.columns:
             # Ensure ticket column is numeric
             counts_df[ticket_column] = pd.to_numeric(counts_df[ticket_column], errors='coerce')
             
@@ -547,12 +589,39 @@ class ChronicReportBuilder:
             metrics['top5_cost'] = cost_data.head(5).to_dict()
         
         # Bottom 5 availability (from ALL circuits in data)
-        if 'SUM Outage (Hours)' in all_circuits_df.columns:
-            service_hours = self.service_seconds_per_month / 3600 * 3  # 3 months
-            circuit_availability = all_circuits_df.groupby('Config Item Name')['SUM Outage (Hours)'].sum()
-            availability_pct = 100 * (1 - circuit_availability / service_hours)
+        # v0.1.8: Use 'Outage Duration' column (in minutes) with smart unit detection
+        outage_column = None
+        if 'Outage Duration' in all_circuits_df.columns:
+            outage_column = 'Outage Duration'
+        elif 'SUM Outage (Hours)' in all_circuits_df.columns:
+            outage_column = 'SUM Outage (Hours)'
+        
+        if outage_column:
+            # Calculate days in month (assuming 3-month period)
+            days_in_period = 90  # 3 months approximation
+            potential_hours = days_in_period * 24
+            
+            # Get outage data by circuit
+            circuit_outages = all_circuits_df.groupby('Config Item Name')[outage_column].sum()
+            
+            # v0.1.8: Smart unit detection - check if values appear to be minutes or hours
+            max_outage_value = circuit_outages.max() if len(circuit_outages) > 0 else 0
+            
+            # If any value exceeds potential_hours * 2, assume it's in minutes
+            if max_outage_value > potential_hours * 2:
+                # Values are in minutes, convert to hours
+                print(f"Detected outage duration in minutes (max value: {max_outage_value:.1f})")
+                outage_hours = circuit_outages / 60
+            else:
+                # Values appear to be in hours already
+                print(f"Detected outage duration in hours (max value: {max_outage_value:.1f})")
+                outage_hours = circuit_outages
+            
+            # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
+            availability_pct = 100 * (1 - outage_hours / potential_hours)
+            
             # Filter to circuits that actually have outage data
-            availability_pct = availability_pct[circuit_availability > 0]
+            availability_pct = availability_pct[outage_hours > 0]
             avail_data = availability_pct.sort_values()
             metrics['bottom5_availability'] = avail_data.head(5).to_dict()
         

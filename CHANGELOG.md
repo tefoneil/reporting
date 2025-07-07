@@ -5,6 +5,27 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] – 2025-07-08
+
+### Changed
+- **Column mappings updated** to use standardized Tableau export columns:
+  - Ticket totals: `Distinct count of Inc Nbr` (from impacts crosstab)
+  - Outage data: `Outage Duration` (in minutes)
+  - Months chronic: `COUNTD Months` (from counts workbook)
+- **Test circuit filtering** - automatically excludes:
+  - Circuits where `Config Item Name` starts with `CID_TEST`
+  - Circuits where `Vendor` contains "Test"
+- **Availability calculation** updated to match reference formula:
+  - `Availability = 100 × (1 – OutageHours / PotentialHours)`
+  - Automatic unit detection: if any outage > (days × 24 × 2), assumes minutes
+- **Data quality warnings** added for >10% non-numeric ticket values
+
+### Technical Details
+- Smart unit detection prevents double-division if data source switches units
+- Test circuit filtering applied early in data pipeline for all metrics
+- Availability now correctly uses outage minutes converted to hours
+- Data quality banners shown in both CLI and GUI modes
+
 ## [0.1.7-b] – 2025-07-08
 
 ### Changed
