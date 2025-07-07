@@ -158,8 +158,9 @@ Examples:
             
             # Step 5: Generate reports
             progress_context("Generating Word documents...")
+            month_str = args.month.replace(' ', '_') if args.month else None
             report_outputs = builder.build_monthly_report(
-                impacts_path, counts_path, None, output_dir
+                impacts_path, counts_path, None, output_dir, month_str
             )
             pbar.update(1)
             

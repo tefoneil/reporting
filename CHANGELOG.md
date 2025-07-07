@@ -1,0 +1,140 @@
+# Changelog
+
+All notable changes to the Monthly Reporting project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.5-patch1] – 2025-07-07
+
+### Fixed
+- **New Chronic promotion lifecycle**: Prior month's "New Chronic" circuits are now automatically evaluated for promotion to Consistent/Inconsistent based on ticket rule (≥6 tickets = Consistent)
+- **Dynamic date narrative in Word generation**: Month parameter properly passed to generate accurate "By the end of {month}" text instead of hardcoded dates
+- **Baseline hotfix metadata**: Added tracking for promotional logic fixes in JSON output
+
+### Technical Details
+- Enhanced `load_baseline_status()` to include prior month's `new_chronics` with `pending_promotion` status
+- Added `pending_promotion` handler in classification logic to apply ticket-based promotion rules
+- `generate_chronic_corner_word()` now accepts and uses `month_str` parameter for dynamic date narratives
+- Version metadata updated to track baseline hotfix implementations
+
+## [0.1.5] – 2025-07-07
+
+### Added
+- **Canonical circuit IDs**: Normalize circuit identifiers by extracting first token before `_`, `/`, ` `, or `-` (≥3 digits)
+- Ticket counts sourced exclusively from **`Distinct count of Inc Nbr`** column in Count Months Chronic file
+- Data quality warning for >10% non-numeric ticket values in GUI
+- Comprehensive unit tests for ID normalization and aggregation scenarios
+
+### Fixed
+- **Duplicate suffix variations no longer split ticket totals**
+- Zero-ticket misclassification for 091NOID circuits resolved through canonical aggregation
+- VID- circuits preserved without incorrect splitting (hyphen rule respects ≥3 digits requirement)
+
+### Technical Details
+- All baseline legacy IDs converted to canonical form at load-time for consistent lookups
+- Circuit variants (e.g., 091NOID1143035717419_889599, 091NOID1143035717419_889621) now aggregate under single canonical ID
+- Crosstab file ticket columns ignored to prevent double-counting, only Count Months Chronic used
+- Position-based delimiter splitting ensures correct canonical extraction
+
+### Breaking Changes
+- Circuit ticket calculations now use canonical IDs, may affect circuits with complex naming variations
+
+## [0.1.4] – 2025-07-07
+
+### Added
+- **Hybrid consistency mode**  
+  - Legacy Consistent/Inconsistent statuses frozen up to May 2025.  
+  - All new chronic circuits use rolling ticket rule (≥ 6 tickets) for status.
+- JSON fields: `"version": "0.1.4"`, `"consistency_mode": "hybrid"`.
+- Baseline status loader `load_baseline_status()` to read prior summaries.
+- GUI warning banner when no prior summaries are found.
+- Unit tests for hybrid classification logic and baseline loading.
+
+### Fixed
+- Warning banner now fires when no prior summaries are found.
+
+### Technical Details
+- Baseline cutover point: May 2025 and earlier summaries freeze circuit status
+- New circuits after May 2025 classified by rolling 3-month ticket totals
+- Environment variable `MR_CONSISTENT_THRESHOLD` still controls ticket threshold
+- Media chronics combine baseline + hardcoded lists (remove duplicates)
+
+## [0.1.3] – 2025-07-07
+
+### Fixed
+- **Month / Year forward-fill**: Added  
+  `df['Inc Resolved At (Month / Year)'].ffill(inplace=True)`  
+  in the data-loader.  
+  Prevents rows with blank month cells from being mis-counted as "0 tickets"
+  (e.g., 091NOID* circuits in June 2025).
+
+### Added
+- Unit test for `get_rolling_ticket_total()` using sample DataFrame with a
+  blank month cell.
+- Data-quality warning: GUI logs a yellow banner if >10% of month cells
+  were blank prior to fill-down.
+- Environment variable `MR_DYNAMIC_CONSISTENCY` to toggle between legacy and dynamic modes
+
+### Unchanged
+- **Legacy consistency mode** remains the default  
+  (`MR_DYNAMIC_CONSISTENCY` environment variable is `0` by default).
+- Ticket-based Consistent / Inconsistent logic (≥6 tickets) is available
+  but disabled until further notice.
+
+## [0.1.2] – 2025-07-06
+
+### Added
+- Severity split: ≥6 tickets → Consistent, else Inconsistent chronic classification
+- Environment variable `MR_CONSISTENT_THRESHOLD` for configurable ticket threshold
+- JSON fields `rolling_ticket_total`, `status`, and `version` for enhanced auditing
+- Rolling ticket calculation helper function `get_rolling_ticket_total()`
+- Enhanced smoke test with CID_TEST_7 (7 tickets) and CID_TEST_4 (4 tickets) validation
+
+### Changed
+- `process_chronic_logic()` method now applies dynamic classification based on ticket counts
+- Chronic circuits are no longer hardcoded as consistent/inconsistent
+- JSON output includes circuit-level ticket data for troubleshooting
+
+### Technical Details
+- Existing chronic circuits are classified dynamically using rolling 3-month ticket totals
+- New chronic detection logic remains unchanged (only affects existing chronics)
+- Media chronics remain separate category (not subject to ticket classification)
+- Default threshold is 6 tickets but configurable via environment variable
+
+## [0.1.1] – 2025-07-06
+
+### Added
+- Baseline logic for chronic circuit promotion from previous month summaries
+- Rolling 3-month baseline window for consistent chronic tracking
+- Monthly operating procedure documentation
+
+### Changed
+- JSON summaries now accumulate in output folder for baseline detection
+- Former "New Chronic" circuits automatically promote to "Consistent" status
+
+## [0.1.0] – 2025-07-06
+
+### Added
+- GUI-first interface using FreeSimpleGUI
+- Smart entry point (GUI if no args, CLI if args provided)
+- Real-time progress logging in GUI
+- File browser dialogs for input selection
+- Month/year selection with current date defaults
+- Enhanced error handling and validation
+
+### Changed
+- Primary interface is now GUI instead of CLI
+- CLI preserved for automated testing and smoke tests
+- Updated README to emphasize GUI workflow
+- Removed mapping.csv dependency
+
+### Fixed
+- Path().lower() bug with proper str() casting
+- Month parameter handling for consistent file naming
+- Error scope issues in build_monthly_report method
+
+### Documentation
+- Added docs/initialization_guide.md with GUI-focused workflow
+- Updated README.md for GUI-first approach
+- Comprehensive smoke test suite with real data validation

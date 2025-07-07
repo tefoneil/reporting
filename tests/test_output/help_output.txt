@@ -1,0 +1,28 @@
+usage: monthly_reporting_cli.py [-h] --impacts IMPACTS --counts COUNTS
+                                [--output OUTPUT] [--exclude-regional]
+                                [--show-indicators] [--no-indicators]
+                                [--month MONTH] [--debug] [--dry-run]
+                                [--quiet]
+
+Generate monthly chronic circuit reports
+
+options:
+  -h, --help          show this help message and exit
+  --impacts IMPACTS   Path to impacts crosstab Excel/CSV file
+  --counts COUNTS     Path to counts Excel/CSV file
+  --output OUTPUT     Output directory (default: ./output)
+  --exclude-regional  Exclude regional circuits from new chronic detection
+  --show-indicators   Show (C) chronic and (R) regional flags in reports
+                      (default: True)
+  --no-indicators     Hide (C) and (R) indicators in reports
+  --month MONTH       Report month (e.g., "May 2025") - for display purposes
+  --debug             Enable debug logging and verbose output
+  --dry-run           Validate inputs and show what would be generated without
+                      creating files
+  --quiet             Suppress progress bars and reduce output
+
+Examples:
+  monthly_reporting_cli.py --impacts impacts.xlsx --counts counts.xlsx --output reports/
+  monthly_reporting_cli.py --impacts data.csv --counts data.csv --exclude-regional --debug
+  monthly_reporting_cli.py --impacts impacts.xlsx --counts counts.xlsx --month "June 2025"
+        

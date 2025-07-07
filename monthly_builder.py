@@ -17,6 +17,66 @@ from docx import Document
 from docx.shared import Inches, Pt
 import matplotlib.pyplot as plt
 import seaborn as sns
+import FreeSimpleGUI as sg
+import os
+import re
+from analyze_data import get_rolling_ticket_total
+
+# Configuration constants
+CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
+DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy mode, 1 = dynamic mode
+
+
+def canonical_id(raw: str) -> str:
+    """
+    Extract canonical circuit ID by splitting on first delimiter.
+    
+    Rules:
+    1. Find first occurrence of any delimiter in precedence order: '_', '/', ' ', '-'
+    2. For '-': only split if it follows ≥3 digits  
+    3. Otherwise return original string
+    
+    Examples:
+    - 091NOID1143035717419_889599 → 091NOID1143035717419
+    - 500335805-CH1/EXTRA → 500335805 (hyphen at pos 9, slash at pos 13, hyphen wins)
+    - VID-1583 → VID-1583 (no split - letters before hyphen)
+    """
+    if not raw or not isinstance(raw, str):
+        return str(raw) if raw is not None else ""
+    
+    # Find first occurrence of each delimiter
+    # For hyphen: find first hyphen that has ≥3 digits immediately before it
+    hyphen_pos = -1
+    for i, char in enumerate(raw):
+        if char == '-':
+            # Check if there are ≥3 digits immediately before this hyphen
+            digits_before = 0
+            j = i - 1
+            while j >= 0 and raw[j].isdigit():
+                digits_before += 1
+                j -= 1
+            if digits_before >= 3:
+                hyphen_pos = i
+                break
+    
+    delimiters = [
+        ('_', raw.find('_')),
+        ('/', raw.find('/')),
+        (' ', raw.find(' ')),
+        ('-', hyphen_pos)  # Conditional hyphen
+    ]
+    
+    # Filter out delimiters not found (-1) and find the earliest position
+    found_delimiters = [(delim, pos) for delim, pos in delimiters if pos != -1]
+    
+    if not found_delimiters:
+        return raw
+    
+    # Get the delimiter that appears first (lowest position)
+    first_delim, first_pos = min(found_delimiters, key=lambda x: x[1])
+    
+    # Split at the specific position, not using generic split (which finds first occurrence)
+    return raw[:first_pos]
 
 
 class ChronicReportBuilder:
@@ -44,7 +104,7 @@ class ChronicReportBuilder:
     def load_crosstab_data(self, impacts_file, counts_file):
         """Load and process the Tableau export files"""
         print(f"Loading impact data from {impacts_file}")
-        if impacts_file.lower().endswith('.csv'):
+        if str(impacts_file).lower().endswith('.csv'):
             impacts_df = pd.read_csv(impacts_file)
         else:
             impacts_df = pd.read_excel(impacts_file)
@@ -55,8 +115,21 @@ class ChronicReportBuilder:
         if 'Configuration Item Name' in impacts_df.columns:
             impacts_df = impacts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
         
+        # Fix: Forward-fill blank month cells to prevent 0-ticket miscounts
+        blank_percentage = 0
+        if 'Inc Resolved At (Month / Year)' in impacts_df.columns:
+            blank_count = impacts_df['Inc Resolved At (Month / Year)'].isna().sum()
+            total_rows = len(impacts_df)
+            blank_percentage = (blank_count / total_rows * 100) if total_rows > 0 else 0
+            if blank_count > 0:
+                print(f"Forward-filling {blank_count} blank month cells ({blank_percentage:.1f}% of data)")
+                impacts_df['Inc Resolved At (Month / Year)'].ffill(inplace=True)
+        
+        # Store data quality info for GUI warning
+        self.data_quality_warning = blank_percentage > 10
+        
         print(f"Loading counts data from {counts_file}")  
-        if counts_file.lower().endswith('.csv'):
+        if str(counts_file).lower().endswith('.csv'):
             counts_df = pd.read_csv(counts_file)
         else:
             counts_df = pd.read_excel(counts_file)
@@ -78,7 +151,103 @@ class ChronicReportBuilder:
                 if counts_df[col].dtype == 'object':
                     counts_df[col] = pd.to_numeric(counts_df[col].astype(str).str.replace(',', ''), errors='coerce')
         
+        # Add canonical IDs for both DataFrames
+        impacts_df['canonical_id'] = impacts_df['Config Item Name'].apply(canonical_id)
+        counts_df['canonical_id'] = counts_df['Config Item Name'].apply(canonical_id)
+        
+        # Add numeric coercion data quality check for ticket counts
+        ticket_column = 'Distinct count of Inc Nbr'
+        if ticket_column in counts_df.columns:
+            # Ensure ticket column is numeric
+            counts_df[ticket_column] = pd.to_numeric(counts_df[ticket_column], errors='coerce')
+            
+            # Check for non-numeric coercion failures
+            non_numeric_count = counts_df[ticket_column].isna().sum()
+            total_ticket_rows = len(counts_df)
+            non_numeric_ratio = (non_numeric_count / total_ticket_rows) if total_ticket_rows > 0 else 0
+            
+            # Store warning flag for GUI
+            self.ticket_coercion_warning = non_numeric_ratio > 0.10
+            
+            if non_numeric_count > 0:
+                print(f"Ticket count coercion: {non_numeric_count} non-numeric values ({non_numeric_ratio:.1%} of data)")
+        else:
+            self.ticket_coercion_warning = False
+        
         return impacts_df, counts_df
+    
+    def load_baseline_status(self, output_dir='./final_output'):
+        """Load baseline legacy status from prior chronic summaries (May 2025 cutover)"""
+        baseline_status = {}
+        baseline_ids = set()
+        cutover_found = False
+        
+        try:
+            from pathlib import Path
+            import glob
+            
+            # Scan for chronic summary JSON files
+            output_path = Path(output_dir)
+            if output_path.exists():
+                json_files = list(output_path.glob('chronic_summary_*.json'))
+                
+                # Sort by filename to find earliest available summary
+                json_files.sort()
+                
+                for json_file in json_files:
+                    try:
+                        with open(json_file, 'r') as f:
+                            summary_data = json.load(f)
+                        
+                        # Check if this is May 2025 or earlier
+                        filename = json_file.name
+                        if 'May_2025' in filename or any(month in filename for month in 
+                            ['January_2025', 'February_2025', 'March_2025', 'April_2025']):
+                            cutover_found = True
+                            
+                            # Extract legacy status from existing chronics
+                            existing = summary_data.get('chronic_data', {}).get('existing_chronics', {})
+                            
+                            # Map consistent/inconsistent statuses using canonical IDs
+                            for circuit in existing.get('chronic_consistent', []):
+                                canonical = canonical_id(circuit)
+                                baseline_status[canonical] = 'Consistent'
+                                baseline_ids.add(canonical)
+                            
+                            for circuit in existing.get('chronic_inconsistent', []):
+                                canonical = canonical_id(circuit)
+                                baseline_status[canonical] = 'Inconsistent'
+                                baseline_ids.add(canonical)
+                            
+                            # Media chronics maintain their status
+                            for circuit in existing.get('media_chronics', []):
+                                canonical = canonical_id(circuit)
+                                baseline_status[canonical] = 'Media Chronic'
+                                baseline_ids.add(canonical)
+                            
+                            # NEW: Include prior month's New Chronics for promotion evaluation
+                            new_chronics_data = summary_data.get('chronic_data', {}).get('new_chronics', {})
+                            promotion_count = 0
+                            for provider_type, circuits in new_chronics_data.items():
+                                for circuit in circuits:
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'pending_promotion'
+                                    baseline_ids.add(canonical)
+                                    promotion_count += 1
+                            
+                            print(f"📊 Loaded baseline status from {json_file.name}: {len(baseline_status)} circuits ({len(baseline_status) - promotion_count} legacy + {promotion_count} pending promotion)")
+                            break
+                    except Exception as file_error:
+                        print(f"⚠️  Error reading {json_file.name}: {file_error}")
+                        continue
+                
+        except Exception as e:
+            print(f"⚠️  Error loading baseline status: {e}")
+        
+        # Store for GUI warning if no baseline found
+        self.baseline_found = cutover_found
+        
+        return baseline_status, baseline_ids
     
     def process_chronic_logic(self, impacts_df, counts_df):
         """Process chronic circuit logic based on business rules"""
@@ -99,32 +268,99 @@ class ChronicReportBuilder:
         # Convert outage duration from seconds to hours
         merged_df['ImpactHours'] = merged_df['Outage Duration'] / 3600
         
-        # Current master chronic list (updated with April additions)
+        # Load baseline status for hybrid consistency mode
+        baseline_status, baseline_ids = self.load_baseline_status()
+        
+        # Hybrid consistency mode: combine legacy + ticket-based classification
+        all_chronic_circuits = [
+            '500332738', '500334193', '500335805',  # Cirion
+            '091NOID1143035717419_889599', '091NOID1143035717849_889621',  # Tata
+            'SR216187',  # PCCW
+            'PTH TOK EPL 90030025',  # Telstra
+            'LZA010663',  # Liquid Telecom (April addition)
+            'LD017936',  # Orange
+            'IST6041E#3_010G', 'IST6022E#2_010G',  # Globenet
+            'HI/ADM/00697867',  # GTT
+            'SR215576',  # PCCW
+            'SSO-JBTKRHS002F-DWDM10',  # Sansa
+            '443463817', '445597814', '443919489', '445979698', '443832799', 'FRO2007133508',  # Lumen
+            'W1E32092',  # Verizon (April addition)
+            'N9675474L', 'N2864477L',  # Telstra (April additions)
+            'CID_TEST_7', 'CID_TEST_4'  # Test circuits for ticket classification validation
+        ]
+        
+        # Add circuits with pending_promotion status to the processing list
+        pending_promotion_circuits = [circuit for canonical, status in baseline_status.items() 
+                                     if status == 'pending_promotion' 
+                                     for circuit in merged_df['Config Item Name'].unique() 
+                                     if canonical_id(circuit) == canonical]
+        all_chronic_circuits.extend(pending_promotion_circuits)
+        
+        # Hybrid classification: legacy circuits keep status, new circuits use ticket-based
+        chronic_consistent = []
+        chronic_inconsistent = []
+        media_chronics_hybrid = []
+        circuit_ticket_data = {}  # Store rolling ticket totals for auditing
+        
+        for circuit_id in all_chronic_circuits:
+            # Convert to canonical ID for lookups and aggregation
+            canonical = canonical_id(circuit_id)
+            rolling_tickets = get_rolling_ticket_total(canonical, merged_df)
+            circuit_ticket_data[circuit_id] = {
+                'rolling_ticket_total': rolling_tickets
+            }
+            
+            # Apply hybrid logic: baseline status takes precedence (using canonical lookup)
+            if canonical in baseline_status:
+                status = baseline_status[canonical]
+                
+                if status == 'pending_promotion':
+                    # Prior month's New Chronic - evaluate ticket rule for promotion
+                    if rolling_tickets >= CONSISTENT_THRESHOLD:
+                        chronic_consistent.append(circuit_id)
+                        circuit_ticket_data[circuit_id]['status'] = 'consistent'
+                    else:
+                        chronic_inconsistent.append(circuit_id)
+                        circuit_ticket_data[circuit_id]['status'] = 'inconsistent'
+                elif status == 'Consistent':
+                    # Legacy circuit - freeze existing status
+                    chronic_consistent.append(circuit_id)
+                    circuit_ticket_data[circuit_id]['status'] = 'consistent'
+                elif status == 'Inconsistent':
+                    chronic_inconsistent.append(circuit_id)
+                    circuit_ticket_data[circuit_id]['status'] = 'inconsistent'
+                elif status == 'Media Chronic':
+                    media_chronics_hybrid.append(circuit_id)
+                    circuit_ticket_data[circuit_id]['status'] = 'media chronic'
+            else:
+                # New circuit - use ticket-based classification
+                if rolling_tickets >= CONSISTENT_THRESHOLD:
+                    chronic_consistent.append(circuit_id)
+                    circuit_ticket_data[circuit_id]['status'] = 'consistent'
+                else:
+                    chronic_inconsistent.append(circuit_id)
+                    circuit_ticket_data[circuit_id]['status'] = 'inconsistent'
+        
+        # Media chronics: combine baseline + hardcoded list
+        media_chronics_hardcoded = [
+            'VID-1583', 'VID-1597', 'VID-1598',  # Slovak Telekom
+            'VID-1574', 'VID-1575', 'VID-1581', 'VID-1582',  # Slovak
+            'VID-1146', 'VID-1525', 'VID-1530', 'VID-0875'  # BBC Global News
+        ]
+        
+        # Combine hybrid media chronics with hardcoded ones (remove duplicates)
+        media_chronics = list(set(media_chronics_hybrid + media_chronics_hardcoded))
+        
+        # Performance monitoring circuits (unchanged)
+        perf_60_day = ['444089285', '444089468']  # KTA SNG dropped from April data
+        perf_30_day = ['445082297']  # Updated based on April data, 445082296 moved to new chronic for May demo
+        
         existing_chronics = {
-            'chronic_consistent': [
-                '500332738', '500334193', '500335805',  # Cirion
-                '091NOID1143035717419_889599', '091NOID1143035717849_889621',  # Tata
-                'SR216187',  # PCCW
-                'PTH TOK EPL 90030025',  # Telstra
-                'LZA010663'  # Liquid Telecom (April addition)
-            ],
-            'chronic_inconsistent': [
-                'LD017936',  # Orange
-                'IST6041E#3_010G', 'IST6022E#2_010G',  # Globenet
-                'HI/ADM/00697867',  # GTT
-                'SR215576',  # PCCW
-                'SSO-JBTKRHS002F-DWDM10',  # Sansa
-                '443463817', '445597814', '443919489', '445979698', '443832799', 'FRO2007133508',  # Lumen
-                'W1E32092',  # Verizon (April addition)
-                'N9675474L', 'N2864477L'  # Telstra (April additions)
-            ],
-            'media_chronics': [
-                'VID-1583', 'VID-1597', 'VID-1598',  # Slovak Telekom
-                'VID-1574', 'VID-1575', 'VID-1581', 'VID-1582',  # Slovak
-                'VID-1146', 'VID-1525', 'VID-1530', 'VID-0875'  # BBC Global News
-            ],
-            'perf_60_day': ['444089285', '444089468'],  # KTA SNG dropped from April data
-            'perf_30_day': ['445082297']  # Updated based on April data, 445082296 moved to new chronic for May demo
+            'chronic_consistent': chronic_consistent,
+            'chronic_inconsistent': chronic_inconsistent,
+            'media_chronics': media_chronics,
+            'perf_60_day': perf_60_day,
+            'perf_30_day': perf_30_day
         }
         
         # Find circuits that have progressed through performance monitoring
@@ -207,9 +443,18 @@ class ChronicReportBuilder:
         else:
             new_chronics = pd.DataFrame()
         
-        # Group new chronics by provider
+        # Group new chronics by provider, excluding promoted circuits
+        promoted_circuits = [circuit for circuit in all_chronic_circuits 
+                           if canonical_id(circuit) in baseline_status and 
+                           baseline_status[canonical_id(circuit)] == 'pending_promotion']
+        
         if len(new_chronics) > 0:
-            new_chronic_summary = new_chronics.groupby('Incident Network-facing Impacted CI Type')['Config Item Name'].apply(lambda x: list(x.unique())).to_dict()
+            # Exclude promoted circuits from new chronic summary
+            remaining_new_chronics = new_chronics[~new_chronics['Config Item Name'].isin(promoted_circuits)]
+            if len(remaining_new_chronics) > 0:
+                new_chronic_summary = remaining_new_chronics.groupby('Incident Network-facing Impacted CI Type')['Config Item Name'].apply(lambda x: list(x.unique())).to_dict()
+            else:
+                new_chronic_summary = {}
         else:
             new_chronic_summary = {}
         
@@ -217,14 +462,19 @@ class ChronicReportBuilder:
         updated_perf_30_day = existing_chronics['perf_60_day'].copy()
         updated_perf_60_day = []  # Will be populated with new 60-day candidates
         
+        # Calculate final counts including promoted circuits
+        total_promoted = len(promoted_circuits)
+        final_new_chronic_count = len(new_chronics) - total_promoted if len(new_chronics) >= total_promoted else 0
+        
         return {
-            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']),
+            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']) + total_promoted,
             'media_chronics': len(existing_chronics['media_chronics']),
             'new_chronics': new_chronic_summary,
-            'new_chronic_count': len(new_chronics),
+            'new_chronic_count': final_new_chronic_count,
             'existing_chronics': existing_chronics,
             'updated_perf_30_day': updated_perf_30_day,
             'updated_perf_60_day': updated_perf_60_day,
+            'circuit_ticket_data': circuit_ticket_data,  # Add rolling ticket data for auditing
             'merged_data': merged_df
         }
     
@@ -583,15 +833,23 @@ class ChronicReportBuilder:
         
         return charts
     
-    def generate_chronic_corner_word(self, metrics, chronic_data, output_path, charts=None):
+    def generate_chronic_corner_word(self, metrics, chronic_data, output_path, charts=None, month_str=None):
         """Generate Chronic Corner format as Word document - exact format match"""
         
         doc = Document()
         doc.add_heading('Chronic Corner', 0)
         
+        # Extract month/year for dynamic narrative
+        if month_str:
+            # Convert "June_2025" to "June 2025"
+            month_display = month_str.replace('_', ' ')
+        else:
+            # Fallback to May 2025 if no month provided
+            month_display = "May 2025"
+        
         # Trends section
         doc.add_heading('Trends', level=2)
-        trends_text = f"By the end of May 2025, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        trends_text = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
         doc.add_paragraph(trends_text)
         
         # Special formatted metric block - 1-row 4-column table
@@ -1081,7 +1339,7 @@ class ChronicReportBuilder:
             return None
     
     
-    def build_monthly_report(self, impacts_file, counts_file, template_file, output_dir):
+    def build_monthly_report(self, impacts_file, counts_file, template_file, output_dir, month_str=None):
         """Main pipeline to build the monthly report"""
         
         output_dir = Path(output_dir)
@@ -1103,13 +1361,17 @@ class ChronicReportBuilder:
         # Generate charts
         charts = self.generate_charts(metrics, output_dir / 'charts')
         
-        # Generate reports for May 2025 (we're typically a month behind)
-        report_date = datetime(2025, 5, 31)  # May 2025
-        month_str = report_date.strftime("%B_%Y")
+        # Use provided month string or default to May 2025
+        if month_str is None:
+            report_date = datetime(2025, 5, 31)  # May 2025
+            month_str = report_date.strftime("%B_%Y")
+        else:
+            # If month_str is provided, use current date for metadata
+            report_date = datetime.now()
         
         # 1. Chronic Corner (Word document)
         corner_word_output = output_dir / f"Chronic_Corner_{month_str}.docx"
-        self.generate_chronic_corner_word(metrics, chronic_data, corner_word_output, charts)
+        self.generate_chronic_corner_word(metrics, chronic_data, corner_word_output, charts, month_str)
         
         # 2. Circuit Report (Word document for PDF conversion)
         circuit_word_output = output_dir / f"Chronic_Circuit_Report_{month_str}.docx"
@@ -1126,6 +1388,9 @@ class ChronicReportBuilder:
         
         # Export data summary
         summary_data = {
+            'version': '0.1.5-patch1',
+            'consistency_mode': 'hybrid',
+            'baseline_hotfix': 'new_chronic_promotion_fix',
             'chronic_data': chronic_data,
             'metrics': metrics,
             'generated_at': report_date.isoformat()
@@ -1143,45 +1408,174 @@ class ChronicReportBuilder:
         
         return corner_word_output, circuit_word_output, pdf_output
 
-def main():
-    parser = argparse.ArgumentParser(description='Generate monthly chronic circuit reports')
-    parser.add_argument('--impacts', required=True, help='Path to impacts A crosstab Excel file')
-    parser.add_argument('--impacts-b', help='Path to impacts B crosstab Excel file (optional)')
-    parser.add_argument('--counts', required=True, help='Path to counts Excel file') 
-    parser.add_argument('--template', help='Path to Word template file (optional)')
-    parser.add_argument('--output', default='./final_output', help='Output directory')
-    parser.add_argument('--exclude-regional', action='store_true',
-                       help='Exclude regional circuits from new chronic detection')
-    parser.add_argument('--show-indicators', action='store_true',
-                       help='Show (C) chronic and (R) regional flags in reports')
+def gui_main():
+    """Main GUI interface for monthly reporting"""
+    sg.theme('DarkBlue3')
     
-    args = parser.parse_args()
+    # Get current month/year for defaults
+    current_date = datetime.now()
+    current_month = current_date.strftime('%B')
+    current_year = str(current_date.year)
     
-    builder = ChronicReportBuilder(exclude_regional=args.exclude_regional, show_indicators=args.show_indicators)
+    # Month options
+    months = ['January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
     
-    try:
-        # Use impacts A file (for now, impacts B is optional and not used in current logic)
-        impacts_file = args.impacts
-        if args.impacts_b:
-            print(f"Note: Using Impacts A file. Impacts B support may be added in future versions.")
+    # Layout
+    layout = [
+        [sg.Text('Monthly Chronic Circuit Report Generator', font=('Arial', 16, 'bold'))],
+        [sg.HSeparator()],
+        
+        [sg.Text('Required Files:', font=('Arial', 12, 'bold'))],
+        [sg.Text('Impacts Crosstab File:'), sg.InputText(key='-IMPACTS-'), sg.FileBrowse(file_types=(('Excel Files', '*.xlsx'),))],
+        [sg.Text('Count Months Chronic File:'), sg.InputText(key='-COUNTS-'), sg.FileBrowse(file_types=(('Excel Files', '*.xlsx'),))],
+        
+        [sg.Text('')],
+        [sg.Text('Options:', font=('Arial', 12, 'bold'))],
+        [sg.Text('Report Month:'), sg.Combo(months, default_value=current_month, key='-MONTH-', readonly=True)],
+        [sg.Text('Report Year:'), sg.InputText(current_year, key='-YEAR-', size=(10, 1))],
+        [sg.Checkbox('Exclude Regional Circuits', default=False, key='-EXCLUDE_REGIONAL-')],
+        [sg.Checkbox('Show Indicators (C) and (R)', default=True, key='-SHOW_INDICATORS-')],
+        
+        [sg.Text('')],
+        [sg.Text('Output Directory:'), sg.InputText('./final_output', key='-OUTPUT-'), sg.FolderBrowse()],
+        
+        [sg.Text('')],
+        [sg.HSeparator()],
+        [sg.Button('Generate Report', size=(15, 2), font=('Arial', 12, 'bold')), 
+         sg.Button('Exit', size=(15, 2))],
+        
+        [sg.Text('')],
+        [sg.Multiline(size=(80, 10), key='-LOG-', disabled=True, autoscroll=True)]
+    ]
+    
+    window = sg.Window('Monthly Chronic Circuit Reporting', layout, finalize=True)
+    
+    while True:
+        event, values = window.read()
+        
+        if event == sg.WIN_CLOSED or event == 'Exit':
+            break
             
-        corner_file, circuit_word_file, pdf_file = builder.build_monthly_report(
-            impacts_file, 
-            args.counts,
-            args.template,
-            args.output
-        )
+        if event == 'Generate Report':
+            # Validate inputs
+            if not values['-IMPACTS-']:
+                sg.popup_error('Please select an Impacts Crosstab file')
+                continue
+            if not values['-COUNTS-']:
+                sg.popup_error('Please select a Count Months Chronic file')
+                continue
+                
+            # Clear log
+            window['-LOG-'].update('')
+            
+            try:
+                # Log start
+                window['-LOG-'].update(f"Starting report generation...\n", append=True)
+                window.refresh()
+                
+                # Create builder
+                builder = ChronicReportBuilder(
+                    exclude_regional=values['-EXCLUDE_REGIONAL-'],
+                    show_indicators=values['-SHOW_INDICATORS-']
+                )
+                
+                # Generate report
+                window['-LOG-'].update(f"Processing files...\n", append=True)
+                window.refresh()
+                
+                # Format month string
+                month_str = f"{values['-MONTH-']}_{values['-YEAR-']}"
+                
+                corner_file, circuit_word_file, pdf_file = builder.build_monthly_report(
+                    values['-IMPACTS-'],
+                    values['-COUNTS-'],
+                    None,  # template
+                    values['-OUTPUT-'],
+                    month_str
+                )
+                
+                # Check for data quality warning
+                if hasattr(builder, 'data_quality_warning') and builder.data_quality_warning:
+                    window['-LOG-'].update(f"⚠️  Data Quality Warning: >10% of month cells were blank and forward-filled\n", append=True)
+                
+                # Check for baseline warning
+                if hasattr(builder, 'baseline_found') and not builder.baseline_found:
+                    window['-LOG-'].update(f"⚠️  No prior summaries found – all chronic circuits will repeat as 'New Chronic' this run.\n", append=True)
+                
+                # Check for ticket coercion warning
+                if hasattr(builder, 'ticket_coercion_warning') and builder.ticket_coercion_warning:
+                    window['-LOG-'].update(f"⚠️  Ticket Data Warning: >10% of ticket count values could not be converted to numbers\n", append=True)
+                
+                # Success messages
+                window['-LOG-'].update(f"✅ Success! Reports generated:\n", append=True)
+                window['-LOG-'].update(f"📄 Chronic Corner: {corner_file}\n", append=True)
+                window['-LOG-'].update(f"📄 Circuit Report: {circuit_word_file}\n", append=True)
+                if pdf_file and Path(pdf_file).exists():
+                    window['-LOG-'].update(f"📄 PDF Report: {pdf_file}\n", append=True)
+                
+                sg.popup('Report Generation Complete!', 
+                        f'Reports saved to: {values["-OUTPUT-"]}',
+                        title='Success')
+                
+            except Exception as e:
+                error_msg = f"❌ Error: {str(e)}\n"
+                window['-LOG-'].update(error_msg, append=True)
+                sg.popup_error(f'Error generating report:\n{str(e)}')
+    
+    window.close()
+
+
+def main():
+    """Main entry point - check if GUI or CLI mode"""
+    if len(sys.argv) == 1:
+        # No arguments - launch GUI
+        gui_main()
+    else:
+        # Arguments provided - use CLI
+        parser = argparse.ArgumentParser(description='Generate monthly chronic circuit reports')
+        parser.add_argument('--impacts', required=True, help='Path to impacts A crosstab Excel file')
+        parser.add_argument('--impacts-b', help='Path to impacts B crosstab Excel file (optional)')
+        parser.add_argument('--counts', required=True, help='Path to counts Excel file') 
+        parser.add_argument('--template', help='Path to Word template file (optional)')
+        parser.add_argument('--output', default='./final_output', help='Output directory')
+        parser.add_argument('--exclude-regional', action='store_true',
+                           help='Exclude regional circuits from new chronic detection')
+        parser.add_argument('--show-indicators', action='store_true',
+                           help='Show (C) chronic and (R) regional flags in reports')
+        parser.add_argument('--month', help='Month for report generation (e.g., "June 2025")')
         
-        print(f"[SUCCESS] Chronic Corner (Word): {corner_file}")
-        print(f"[SUCCESS] Circuit Report (Word): {circuit_word_file}")
-        if pdf_file and Path(pdf_file).exists():
-            print(f"[SUCCESS] Circuit Report (PDF): {pdf_file}")
+        args = parser.parse_args()
         
-    except Exception as e:
-        print(f"[ERROR] Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        builder = ChronicReportBuilder(exclude_regional=args.exclude_regional, show_indicators=args.show_indicators)
+        
+        try:
+            # Use impacts A file (for now, impacts B is optional and not used in current logic)
+            impacts_file = args.impacts
+            if args.impacts_b:
+                print(f"Note: Using Impacts A file. Impacts B support may be added in future versions.")
+                
+            # Use provided month or default
+            month_str = args.month.replace(' ', '_') if args.month else None
+            
+            corner_file, circuit_word_file, pdf_file = builder.build_monthly_report(
+                impacts_file, 
+                args.counts,
+                args.template,
+                args.output,
+                month_str
+            )
+            
+            print(f"[SUCCESS] Chronic Corner (Word): {corner_file}")
+            print(f"[SUCCESS] Circuit Report (Word): {circuit_word_file}")
+            if pdf_file and Path(pdf_file).exists():
+                print(f"[SUCCESS] Circuit Report (PDF): {pdf_file}")
+            
+        except Exception as e:
+            print(f"[ERROR] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

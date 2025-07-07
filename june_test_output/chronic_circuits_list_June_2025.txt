@@ -1,0 +1,77 @@
+CHRONIC CIRCUITS LIST - JUNE 2025 REPORT
+========================================
+
+TOTAL CHRONIC CIRCUITS: 23
+
+CHRONIC CONSISTENT (8 circuits):
+-----------------------------------
+1. 500332738
+2. 500334193
+3. 500335805
+4. 091NOID1143035717419_889599
+5. 091NOID1143035717849_889621
+6. SR216187
+7. PTH TOK EPL 90030025
+8. LZA010663
+
+CHRONIC INCONSISTENT (15 circuits):
+-----------------------------------
+1. LD017936
+2. IST6041E#3_010G
+3. IST6022E#2_010G
+4. HI/ADM/00697867
+5. SR215576
+6. SSO-JBTKRHS002F-DWDM10
+7. 443463817
+8. 445597814
+9. 443919489
+10. 445979698
+11. 443832799
+12. FRO2007133508
+13. W1E32092
+14. N9675474L
+15. N2864477L
+
+MEDIA CHRONICS (11 circuits):
+-----------------------------------
+1. VID-1583
+2. VID-1597
+3. VID-1598
+4. VID-1574
+5. VID-1575
+6. VID-1581
+7. VID-1582
+8. VID-1146
+9. VID-1525
+10. VID-1530
+11. VID-0875
+
+NEW CHRONIC CIRCUITS (1 circuit):
+-----------------------------------
+1. 444282783 (Leased Line Circuit)
+
+PERFORMANCE MONITORING:
+-----------------------------------
+30-Day Performance Watch: 444089285, 444089468
+60-Day Performance Watch: None
+
+TOP 5 WORST PERFORMERS:
+-----------------------------------
+By Ticket Count:
+- SR216187: 51 tickets
+- 500334193 / 81-4W3EOZV: 33 tickets
+- PTH TOK EPL 90030025: 23 tickets
+- 091NOID1143035717849: 21 tickets
+- W1E32092: 21 tickets
+
+By Availability (Worst):
+- LZA010663: 78.98%
+- PTH TOK EPL 90030025: 79.98%
+- N2864477L: 83.90%
+- 500335805: 84.30%
+- 444282783: 87.60%
+
+Notes:
+- (C) indicates chronic circuits
+- (R) indicates regional correlation
+- (C/R) indicates both chronic and regional
