@@ -129,7 +129,7 @@ python monthly_reporting_cli.py \
 
 ---
 
-## ✨ **Enhanced Features (v0.1.9-rc10)**
+## ✨ **Enhanced Features (v0.1.9-rc12)**
 
 ### **🎯 Enhanced Chart Titles with Aggregated Insights**
 Charts now show immediate actionable metrics:
@@ -167,4 +167,4 @@ See **[📖 Build Instructions](BUILD_INSTRUCTIONS.md)** for creating standalone
 
 ---
 
-*Monthly Report Builder v0.1.9-rc10 | Enhanced insights for network operations teams*
+*Monthly Report Builder v0.1.9-rc12 | Complete executable distribution system for network operations teams*
