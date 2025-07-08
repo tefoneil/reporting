@@ -638,8 +638,9 @@ class ChronicReportBuilder:
             metrics['top5_tickets'] = ticket_counts.head(5).to_dict()
         
         # Top 5 by cost to serve (from ALL circuits in data)
+        # NOTE: Cost values are pre-calculated totals from counts file, not per-incident
         if 'Cost to Serve (Sum Impact x $60/hr)' in all_circuits_df.columns:
-            cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].sum().sort_values(ascending=False)
+            cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].first().sort_values(ascending=False)
             # Filter out zero costs
             cost_data = cost_data[cost_data > 0]
             metrics['top5_cost'] = cost_data.head(5).to_dict()
@@ -880,36 +881,44 @@ class ChronicReportBuilder:
             f.write("TOP 5 WORST PERFORMERS:\n")
             f.write("-" * 35 + "\n")
             
-            # By Ticket Count
-            f.write("By Ticket Count:\n")
-            for circuit, count in list(metrics.get('top5_tickets', {}).items())[:5]:
+            # By Ticket Volume with total
+            top5_tickets = list(metrics.get('top5_tickets', {}).items())[:5]
+            tickets_total = sum([count for _, count in top5_tickets])
+            f.write(f"Top 5 by Ticket Volume - Total: {tickets_total}:\n")
+            for circuit, count in top5_tickets:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
                 # P4-a: Format circuit display name with provider prefix
                 circuit_display = format_circuit_display_name(circuit_clean)
                 f.write(f"- {circuit_display}: {count} tickets\n")
             f.write("\n")
             
-            # By Availability
-            f.write("By Availability (Worst):\n")
-            for circuit, avail in list(metrics.get('bottom5_availability', {}).items())[:5]:
+            # By Availability with average
+            bottom5_avail = list(metrics.get('bottom5_availability', {}).items())[:5]
+            avail_avg = sum([avail for _, avail in bottom5_avail]) / len(bottom5_avail) if bottom5_avail else 0
+            f.write(f"Top 5 by Worst Availability - Average: {avail_avg:.1f}%:\n")
+            for circuit, avail in bottom5_avail:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
                 # P4-a: Format circuit display name with provider prefix
                 circuit_display = format_circuit_display_name(circuit_clean)
                 f.write(f"- {circuit_display}: {avail:.2f}%\n")
             f.write("\n")
             
-            # P3-b: Add missing Cost category (5 lines)
-            f.write("By Cost to Serve (Highest):\n")
-            for circuit, cost in list(metrics.get('top5_cost', {}).items())[:5]:
+            # By Cost to Serve with total
+            top5_cost = list(metrics.get('top5_cost', {}).items())[:5]
+            cost_total = sum([cost for _, cost in top5_cost])
+            f.write(f"Top 5 by Cost to Serve - Total: ${cost_total:,.0f}:\n")
+            for circuit, cost in top5_cost:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
                 # P4-a: Format circuit display name with provider prefix
                 circuit_display = format_circuit_display_name(circuit_clean)
                 f.write(f"- {circuit_display}: ${cost:,.0f}\n")
             f.write("\n")
             
-            # P3-b: Add missing MTBF category (5 lines)
-            f.write("By MTBF (Worst):\n")
-            for circuit, mtbf in list(metrics.get('bottom5_mtbf', {}).items())[:5]:
+            # By MTBF with average
+            bottom5_mtbf = list(metrics.get('bottom5_mtbf', {}).items())[:5]
+            mtbf_avg = sum([mtbf for _, mtbf in bottom5_mtbf]) / len(bottom5_mtbf) if bottom5_mtbf else 0
+            f.write(f"Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days:\n")
+            for circuit, mtbf in bottom5_mtbf:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
                 # P4-a: Format circuit display name with provider prefix
                 circuit_display = format_circuit_display_name(circuit_clean)
@@ -941,10 +950,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['top5_tickets'].keys())
             tickets = list(metrics['top5_tickets'].values())
+            tickets_total = sum(tickets)
             
             bars = ax.barh(circuits, tickets)
             ax.set_xlabel('Number of Tickets')
-            ax.set_title('Top 5 Circuits by Ticket Volume')
+            ax.set_title(f'Top 5 by Ticket Volume - Total: {tickets_total}')
             
             # Add value labels on bars
             for bar in bars:
@@ -963,10 +973,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['top5_cost'].keys())
             costs = list(metrics['top5_cost'].values())
+            cost_total = sum(costs)
             
             bars = ax.barh(circuits, costs)
             ax.set_xlabel('Cost to Serve ($)')
-            ax.set_title('Top 5 Circuits by Cost to Serve')
+            ax.set_title(f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}')
             
             # Add value labels
             for bar in bars:
@@ -985,10 +996,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['bottom5_availability'].keys())
             avail = list(metrics['bottom5_availability'].values())
+            avail_avg = sum(avail) / len(avail) if avail else 0
             
             bars = ax.barh(circuits, avail)
             ax.set_xlabel('Availability %')
-            ax.set_title('Bottom 5 Circuits by Availability')
+            ax.set_title(f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%')
             
             # Add value labels
             for bar in bars:
@@ -1007,10 +1019,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['bottom5_mtbf'].keys())
             mtbf_days = list(metrics['bottom5_mtbf'].values())
+            mtbf_avg = sum(mtbf_days) / len(mtbf_days) if mtbf_days else 0
             
             bars = ax.barh(circuits, mtbf_days, color='red', alpha=0.7)
             ax.set_xlabel('Mean Time Between Failures (Days)')
-            ax.set_title('Bottom 5 Circuits by MTBF (Worst Performing)')
+            ax.set_title(f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days')
             
             # Add value labels
             for bar in bars:
@@ -1686,7 +1699,25 @@ class ChronicReportBuilder:
             
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         doc.save(output_path)
@@ -1858,7 +1889,8 @@ class ChronicReportBuilder:
             legend.paragraph_format.space_after = Pt(6)
         
         if 'top5_tickets' in metrics:
-            doc.add_heading('Top 5 Circuits by Ticket Volume', level=2)
+            tickets_total = sum(metrics['top5_tickets'].values())
+            doc.add_heading(f'Top 5 by Ticket Volume - Total: {tickets_total}', level=2)
             tickets_table = doc.add_table(rows=1, cols=2)
             tickets_table.style = 'Table Grid'
             tickets_table.cell(0, 0).text = "Circuit ID"
@@ -1870,7 +1902,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = str(count)
         
         if 'top5_cost' in metrics:
-            doc.add_heading('Top 5 Circuits by Cost to Serve', level=2)
+            cost_total = sum(metrics['top5_cost'].values())
+            doc.add_heading(f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}', level=2)
             cost_table = doc.add_table(rows=1, cols=2)
             cost_table.style = 'Table Grid'
             cost_table.cell(0, 0).text = "Circuit ID"
@@ -1882,7 +1915,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = f"${cost:,.0f}"
         
         if 'bottom5_availability' in metrics:
-            doc.add_heading('Bottom 5 Circuits by Availability', level=2)
+            avail_avg = sum(metrics['bottom5_availability'].values()) / len(metrics['bottom5_availability'])
+            doc.add_heading(f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%', level=2)
             avail_table = doc.add_table(rows=1, cols=2)
             avail_table.style = 'Table Grid'
             avail_table.cell(0, 0).text = "Circuit ID"
@@ -1894,7 +1928,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = f"{avail:.1f}%"
         
         if 'bottom5_mtbf' in metrics:
-            doc.add_heading('Bottom 5 Circuits by MTBF (Worst Performing)', level=2)
+            mtbf_avg = sum(metrics['bottom5_mtbf'].values()) / len(metrics['bottom5_mtbf'])
+            doc.add_heading(f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days', level=2)
             mtbf_table = doc.add_table(rows=1, cols=2)
             mtbf_table.style = 'Table Grid'
             mtbf_table.cell(0, 0).text = "Circuit ID"
@@ -1911,7 +1946,25 @@ class ChronicReportBuilder:
             doc.add_heading('Circuit Analysis Charts', level=1)
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         doc.save(output_path)
@@ -1953,7 +2006,25 @@ class ChronicReportBuilder:
             
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         # Add MTBF section
