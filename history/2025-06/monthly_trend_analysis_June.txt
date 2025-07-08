@@ -1,0 +1,29 @@
+# MONTHLY PERFORMANCE TREND ANALYSIS
+## May 2025 → June
+======================================================================
+
+## 📊 NETWORK HEALTH OVERVIEW
+• **Total Chronic Circuits**: 25 → 23 (-2 change)
+• **New Chronics Identified**: 1
+• **Consistent Circuits**: 0 → 8 (+8)
+
+## 🔥 TOP TICKET GENERATORS ANALYSIS
+• **Ticket Generators**: Previous month data unavailable for comparison
+
+## 💰 COST TO SERVE ANALYSIS
+• **Cost Circuits**: Previous month data unavailable for comparison
+
+## 📉 AVAILABILITY PERFORMANCE ANALYSIS
+• **Worst Availability**: Previous month data unavailable for comparison
+
+## ⚡ RELIABILITY (MTBF) ANALYSIS
+• **Worst MTBF**: Previous month data unavailable for comparison
+
+## 🎯 STRATEGIC RECOMMENDATIONS
+### 👀 EMERGING PATTERNS:
+• New high-cost circuits emerged: 444282783, NTT, Telstra, Cirion, Telstra
+
+### 📈 OVERALL NETWORK TREND:
+• **Gradual improvement** - 2 fewer chronic circuits
+
+**New chronic circuits this month:** 444282783

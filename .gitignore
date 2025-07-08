@@ -62,7 +62,18 @@ charts/
 tests/large_test_data/
 tests/output/
 
+# P3: Updated for v0.1.9-hotfix4 folder structure
+# Test outputs (development only)
+test_outputs/
+archived_test_runs/
+
+# Version-specific test output directories  
+*_test_output/
+*_output/
+june_*/
+v0*_output/
+
 # Temporary files
 temp/
 tmp/
-.tmp/
+.tmp/tests/tmp_output/

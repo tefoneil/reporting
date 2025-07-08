@@ -1,7 +1,7 @@
-CHRONIC CIRCUITS LIST - JULY 2025 REPORT
+CHRONIC CIRCUITS LIST - JUNE 2025 REPORT
 ========================================
 
-TOTAL CHRONIC CIRCUITS: 23
+TOTAL CHRONIC CIRCUITS: 24
 
 CHRONIC CONSISTENT (8 circuits):
 -----------------------------------
@@ -35,16 +35,16 @@ CHRONIC INCONSISTENT (15 circuits):
 MEDIA CHRONICS (11 circuits):
 -----------------------------------
 1. VID-1583
-2. VID-1597
-3. VID-1598
-4. VID-1574
-5. VID-1575
-6. VID-1581
-7. VID-1582
-8. VID-1146
-9. VID-1525
-10. VID-1530
-11. VID-0875
+2. VID-0875
+3. VID-1525
+4. VID-1530
+5. VID-1597
+6. VID-1146
+7. VID-1575
+8. VID-1574
+9. VID-1581
+10. VID-1598
+11. VID-1582
 
 NEW CHRONIC CIRCUITS (1 circuit):
 -----------------------------------
@@ -58,18 +58,32 @@ PERFORMANCE MONITORING:
 TOP 5 WORST PERFORMERS:
 -----------------------------------
 By Ticket Count:
-- SR216187: 50 tickets
+- PCCW SR216187: 51 tickets
 - 500334193 / 81-4W3EOZV: 33 tickets
-- PTH TOK EPL 90030025: 23 tickets
-- W1E32092: 21 tickets
-- 091NOID1143035717849: 20 tickets
+- Telstra PTH TOK EPL 90030025: 23 tickets
+- 091NOID1143035717849: 21 tickets
+- Verizon W1E32092: 21 tickets
 
 By Availability (Worst):
-- PTH TOK EPL 90030025: 79.98%
-- LZA010663: 81.92%
-- N2864477L: 83.90%
-- 500335805: 84.30%
-- 444282783: 87.60%
+- NTT LZA010634: 7.41%
+- INT-BRW1-LA1-ETH-01: 12.22%
+- 445979698: 17.16%
+- 500263377: 19.50%
+- 445252110: 27.25%
+
+By Cost to Serve (Highest):
+- NTT LZA010663: $27,645
+- Telstra PTH TOK EPL 90030025: $26,324
+- Telstra N2864477L: $21,171
+- 500335805: $20,650
+- 444282783: $16,311
+
+By MTBF (Worst):
+- PCCW SR216187: 1.8 days
+- 500334193 / 81-4W3EOZV: 2.7 days
+- Telstra PTH TOK EPL 90030025: 3.9 days
+- 091NOID1143035717849: 4.3 days
+- Verizon W1E32092: 4.3 days
 
 Notes:
 - (C) indicates chronic circuits

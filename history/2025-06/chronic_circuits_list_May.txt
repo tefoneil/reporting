@@ -1,7 +1,7 @@
-CHRONIC CIRCUITS LIST - JUNE 2025 REPORT
+CHRONIC CIRCUITS LIST - MAY REPORT
 ========================================
 
-TOTAL CHRONIC CIRCUITS: 25
+TOTAL CHRONIC CIRCUITS: 24
 
 CHRONIC CONSISTENT (8 circuits):
 -----------------------------------
@@ -14,7 +14,7 @@ CHRONIC CONSISTENT (8 circuits):
 7. PTH TOK EPL 90030025
 8. LZA010663
 
-CHRONIC INCONSISTENT (17 circuits):
+CHRONIC INCONSISTENT (15 circuits):
 -----------------------------------
 1. LD017936
 2. IST6041E#3_010G
@@ -31,26 +31,24 @@ CHRONIC INCONSISTENT (17 circuits):
 13. W1E32092
 14. N9675474L
 15. N2864477L
-16. CID_TEST_7
-17. CID_TEST_4
 
 MEDIA CHRONICS (11 circuits):
 -----------------------------------
-1. VID-1583
-2. VID-1598
-3. VID-1597
-4. VID-1581
-5. VID-1575
-6. VID-1530
-7. VID-0875
-8. VID-1146
-9. VID-1525
-10. VID-1582
-11. VID-1574
+1. VID-1598
+2. VID-1146
+3. VID-1575
+4. VID-1530
+5. VID-1582
+6. VID-1525
+7. VID-1581
+8. VID-1583
+9. VID-0875
+10. VID-1574
+11. VID-1597
 
 NEW CHRONIC CIRCUITS (1 circuit):
 -----------------------------------
-1. 445082297 (Lumen)
+1. 444282783 (Leased Line Circuit)
 
 PERFORMANCE MONITORING:
 -----------------------------------
@@ -60,18 +58,32 @@ PERFORMANCE MONITORING:
 TOP 5 WORST PERFORMERS:
 -----------------------------------
 By Ticket Count:
-- CID_TEST_7: 7 tickets
-- IST6022E#2_010G: 5 tickets
-- 091NOID1143035717849_889621: 4 tickets
-- CID_TEST_4: 4 tickets
-- PTH TOK EPL 90030025: 3 tickets
+- PCCW SR216187: 50 tickets
+- 500334193 / 81-4W3EOZV: 33 tickets
+- Telstra PTH TOK EPL 90030025: 23 tickets
+- Verizon W1E32092: 21 tickets
+- 091NOID1143035717849: 20 tickets
 
 By Availability (Worst):
-- IST6022E#2_010G: 99.77%
-- 091NOID1143035717849_889621: 99.82%
-- LZA010663: 99.84%
-- PTH TOK EPL 90030025: 99.86%
-- 445082297: 99.89%
+- NTT LZA010634: 7.41%
+- INT-BRW1-LA1-ETH-01: 12.22%
+- 445979698: 17.16%
+- 500263377: 19.50%
+- 445252110: 27.25%
+
+By Cost to Serve (Highest):
+- Telstra PTH TOK EPL 90030025: $26,324
+- NTT LZA010663: $23,780
+- Telstra N2864477L: $21,171
+- 500335805: $20,651
+- 444282783: $16,311
+
+By MTBF (Worst):
+- PCCW SR216187: 1.8 days
+- 500334193 / 81-4W3EOZV: 2.7 days
+- Telstra PTH TOK EPL 90030025: 3.9 days
+- Verizon W1E32092: 4.3 days
+- 091NOID1143035717849: 4.5 days
 
 Notes:
 - (C) indicates chronic circuits

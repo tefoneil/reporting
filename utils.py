@@ -225,7 +225,7 @@ def format_circuit_display_name(circuit_id: str) -> str:
     """
     Format circuit ID for display by prepending provider name for abbreviated IDs.
     
-    P4-a: Handle partial IDs that need provider context for clarity.
+    v0.1.9-rc6: Enhanced with authoritative vendor mapping from circuit inventory.
     
     Args:
         circuit_id: Raw circuit identifier
@@ -236,7 +236,33 @@ def format_circuit_display_name(circuit_id: str) -> str:
     if not circuit_id or not isinstance(circuit_id, str):
         return str(circuit_id) if circuit_id else ""
     
-    # Define abbreviated ID patterns and their provider mappings
+    # v0.1.9-rc6: Authoritative vendor mappings from circuit inventory
+    # These override pattern-based guessing with actual ServiceNow data
+    inventory_vendors = {
+        'SR216187': 'PCCW',
+        'PTH TOK EPL 90030025': 'Telstra',
+        'LZA010663': 'NTT',
+        '500332738': 'Cirion',
+        '500334193': 'Cirion', 
+        '500335805': 'Cirion',
+        '091NOID1143035717419_889599': 'TATA',
+        '091NOID1143035717849_889621': 'TATA',
+        'LD017936': 'Orange',
+        'IST6041E#3_010G': 'Globenet',
+        'IST6022E#2_010G': 'Globenet',
+        'W1E32092': 'Verizon',
+        'N9675474L': 'Telstra',
+        'N2864477L': 'Telstra'
+    }
+    
+    # Check inventory first
+    if circuit_id in inventory_vendors:
+        vendor = inventory_vendors[circuit_id]
+        if not circuit_id.startswith(vendor):
+            return f"{vendor} {circuit_id}"
+        return circuit_id
+    
+    # Fallback to pattern-based mapping for circuits not in inventory
     provider_prefixes = {
         'PTH': 'Telstra',       # PTH TOK EPL 90030025 -> Telstra PTH TOK EPL 90030025
         'W1E': 'Verizon',       # W1E32092 -> Verizon W1E32092

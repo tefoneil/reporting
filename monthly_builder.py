@@ -278,9 +278,27 @@ class ChronicReportBuilder:
         
         return baseline_status, baseline_ids
     
+    def _clean_outage(self, df):
+        """Deduplicate and convert Outage Duration to hours."""
+        df = (
+            df.drop_duplicates(subset=["Config Item Name", "Distinct count of Inc Nbr"])
+              .assign(
+                  ImpactHours=lambda d: (
+                      d["Outage Duration"].astype(str)
+                        .str.replace(",", "", regex=False)
+                        .astype(float) / 3600.0  # Convert seconds to hours
+                  )
+              )
+        )
+        return df
+
     def process_chronic_logic(self, impacts_df, counts_df):
         """Process chronic circuit logic based on business rules"""
         print("Processing chronic circuit logic...")
+        
+        # v0.1.9-rc6: Deduplicate incidents and convert to hours
+        impacts_df = self._clean_outage(impacts_df)
+        print(f"After deduplication: {len(impacts_df)} rows")
         
         # Merge data on Config Item Name
         merged_df = pd.merge(
@@ -291,11 +309,9 @@ class ChronicReportBuilder:
         ).fillna({
             'COUNTD Months': 0,
             'Outage Duration': 0,
-            'Incident Network-facing Impacted CI Type': 'Unknown Provider'
+            'Incident Network-facing Impacted CI Type': 'Unknown Provider',
+            'ImpactHours': 0
         })
-        
-        # Convert outage duration from seconds to hours
-        merged_df['ImpactHours'] = merged_df['Outage Duration'] / 3600
         
         # v0.1.8-audit: Create raw ticket counts dictionary for audit trail
         raw_counts = (
@@ -504,8 +520,8 @@ class ChronicReportBuilder:
         final_new_chronic_count = len(new_chronics) - total_promoted if len(new_chronics) >= total_promoted else 0
         
         return {
-            # A3: Calculate total using post-filtering counts to match TXT output
-            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']) + len(existing_chronics['media_chronics']),
+            # P1-c: Count only Consistent + Inconsistent (new chronics tracked separately)
+            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']),
             'media_chronics': len(existing_chronics['media_chronics']),
             'new_chronics': new_chronic_summary,
             'new_chronic_count': final_new_chronic_count,
@@ -566,8 +582,9 @@ class ChronicReportBuilder:
         merged_df = chronic_data['merged_data']
         existing_chronics = chronic_data['existing_chronics']
         
-        # Basic counts from chronic data structure
-        metrics['total_chronic_circuits'] = chronic_data['total_chronic_circuits']
+        # P1-c: Fix chronic counting - only count Consistent + Inconsistent (new chronics tracked separately)
+        final_new_chronic_count = chronic_data['new_chronic_count']
+        metrics['total_chronic_circuits'] = len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent'])
         metrics['media_chronics'] = chronic_data['media_chronics']
         metrics['new_chronic_count'] = chronic_data['new_chronic_count']
         metrics['new_chronics'] = chronic_data['new_chronics']
@@ -628,50 +645,59 @@ class ChronicReportBuilder:
             metrics['top5_cost'] = cost_data.head(5).to_dict()
         
         # Bottom 5 availability (from ALL circuits in data)
-        # P1-a fix: Always treat 'Outage Duration' as minutes, convert once to hours
-        outage_column = None
-        if 'Outage Duration' in all_circuits_df.columns:
-            outage_column = 'Outage Duration'
-        elif 'SUM Outage (Hours)' in all_circuits_df.columns:
-            outage_column = 'SUM Outage (Hours)'
-        
-        if outage_column:
+        # P1-a fix: Use ImpactHours which is already converted correctly from Outage Duration
+        if 'ImpactHours' in all_circuits_df.columns:
             # Calculate potential service hours for 3-month period
             days_in_period = 90  # 3 months approximation  
             potential_hours = days_in_period * 24  # 2160 hours total
             
             # Get outage data by circuit, filter test circuits first
-            outage_df = all_circuits_df[['Config Item Name', outage_column]].copy()
+            outage_df = all_circuits_df[['Config Item Name', 'ImpactHours']].copy()
             outage_df = filter_test_circuits(outage_df, 'Config Item Name')
-            circuit_outages = outage_df.groupby('Config Item Name')[outage_column].sum()
             
-            # A1: Fixed availability calculation - smarter unit detection and validation
-            max_outage_value = circuit_outages.max() if len(circuit_outages) > 0 else 0
-            
-            # Smart unit detection: if max outage > potential hours, it's likely in minutes
-            if max_outage_value > potential_hours:
-                print(f"Detected '{outage_column}' as minutes (max: {max_outage_value:.1f}), converting to hours")
-                outage_hours = circuit_outages / 60  # Convert minutes to hours
+            # v0.1.9-rc7: Use reference calculation method from v2.20-rc2-p5b
+            # Reference uses 'SUM Outage (Hours)' from counts file, not calculated ImpactHours
+            if 'SUM Outage (Hours)' in all_circuits_df.columns:
+                print(f"Using reference method: 'SUM Outage (Hours)' column from counts data")
+                
+                # Reference calculation (3-month service period)
+                service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
+                service_hours = service_seconds_per_month / 3600 * 3  # 3 months = 2191.68h
+                
+                circuit_outages_hours = all_circuits_df.groupby('Config Item Name')['SUM Outage (Hours)'].sum()
+                availability_pct = 100 * (1 - circuit_outages_hours / service_hours)
+                
+                # Filter to circuits that actually have outage data  
+                availability_pct = availability_pct[circuit_outages_hours > 0]
+                
             else:
-                print(f"Detected '{outage_column}' as hours (max: {max_outage_value:.1f})")
-                outage_hours = circuit_outages
+                print(f"Fallback: Using calculated ImpactHours for availability")
+                
+                # Sum the hours by circuit (fallback method)
+                circuit_outages_hours = outage_df.groupby('Config Item Name')['ImpactHours'].sum()
+                
+                # Cap impossible totals at 0% instead of dropping circuits
+                capped_circuits = circuit_outages_hours[circuit_outages_hours > potential_hours]
+                if len(capped_circuits) > 0:
+                    print(f"Capped {len(capped_circuits)} circuits with impossible outage hours to 0% availability")
+                
+                # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
+                availability_pct = 100 * (1 - circuit_outages_hours.clip(upper=potential_hours) / potential_hours)
             
-            # Additional sanity check: cap outages at potential hours (can't have more outage than time exists)
-            outage_hours = outage_hours.clip(upper=potential_hours)
+            # P1-b: Apply comprehensive CID_TEST filtering first
+            # Filter before any validation to ensure no test circuits leak through
+            no_test_availability = availability_pct[~availability_pct.index.str.startswith('CID_TEST', na=False)]
             
-            # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
-            availability_pct = 100 * (1 - outage_hours / potential_hours)
+            # Then apply range validation (0-100%)
+            valid_availability = no_test_availability[(no_test_availability >= 0) & (no_test_availability <= 100)]
             
-            # A1: Strict validation - only allow 0-100% availability
-            valid_availability = availability_pct[(availability_pct >= 0) & (availability_pct <= 100)]
-            
-            # Log any circuits that were filtered due to impossible values
-            filtered_count = len(availability_pct) - len(valid_availability)
-            if filtered_count > 0:
-                logging.info(f"Filtered {filtered_count} circuits with impossible availability values")
-            
-            # Apply CID_TEST filtering to availability results (A2 fix)
-            valid_availability = valid_availability[~valid_availability.index.str.startswith('CID_TEST', na=False)]
+            # Log filtering results
+            test_filtered = len(availability_pct) - len(no_test_availability)
+            range_filtered = len(no_test_availability) - len(valid_availability)
+            if test_filtered > 0:
+                print(f"Filtered {test_filtered} CID_TEST circuits from availability")
+            if range_filtered > 0:
+                print(f"Filtered {range_filtered} circuits with invalid availability ranges")
             
             avail_data = valid_availability.sort_values()
             metrics['bottom5_availability'] = avail_data.head(5).to_dict()
@@ -764,6 +790,14 @@ class ChronicReportBuilder:
             if 'bottom5_mtbf' in metrics:
                 metrics['bottom5_mtbf'] = add_indicators(metrics['bottom5_mtbf'])
         
+        # P3: Apply provider alias to PTH in performance tables
+        for metric_key in ['top5_tickets', 'top5_cost', 'bottom5_availability', 'bottom5_mtbf']:
+            if metric_key in metrics:
+                formatted_data = {}
+                for circuit_id, value in metrics[metric_key].items():
+                    formatted_data[format_circuit_display_name(circuit_id)] = value
+                metrics[metric_key] = formatted_data
+        
         # P1-a: Validate calculations before returning
         try:
             validate_calculations(metrics)
@@ -782,11 +816,11 @@ class ChronicReportBuilder:
             f.write(f"CHRONIC CIRCUITS LIST - {month_str.replace('_', ' ').upper()} REPORT\n")
             f.write("=" * 40 + "\n\n")
             
-            # A3: Calculate actual count from the lists being written (post-filtering)
+            # P1-c: Calculate count same way as JSON - only Consistent + Inconsistent + New
             consistent = chronic_data.get('existing_chronics', {}).get('chronic_consistent', [])
             inconsistent = chronic_data.get('existing_chronics', {}).get('chronic_inconsistent', [])
-            media = chronic_data.get('existing_chronics', {}).get('media_chronics', [])
-            actual_chronic_count = len(consistent) + len(inconsistent) + len(media)
+            new_chronic_count = chronic_data.get('new_chronic_count', 0)
+            actual_chronic_count = len(consistent) + len(inconsistent) + new_chronic_count
             
             f.write(f"TOTAL CHRONIC CIRCUITS: {actual_chronic_count}\n\n")
             
@@ -995,9 +1029,20 @@ class ChronicReportBuilder:
     def generate_trend_analysis(self, current_month_str: str, output_dir: Path) -> str:
         """Generate comprehensive chart-based month-over-month trend analysis"""
         try:
-            # Find previous month's data
-            json_files = list(output_dir.glob('chronic_summary_*.json'))
-            json_files = [f for f in json_files if f.name != f'chronic_summary_{current_month_str}.json']
+            # P1-b: Look for previous month data in history/ directory as well as current output
+            json_files = []
+            
+            # Check current output directory
+            current_json_files = list(output_dir.glob('chronic_summary_*.json'))
+            json_files.extend([f for f in current_json_files if f.name != f'chronic_summary_{current_month_str}.json'])
+            
+            # Check history directories
+            history_dir = Path('history')
+            if history_dir.exists():
+                for month_dir in history_dir.iterdir():
+                    if month_dir.is_dir():
+                        history_json_files = list(month_dir.glob('chronic_summary_*.json'))
+                        json_files.extend(history_json_files)
             
             if not json_files:
                 return "No previous month data available for trend analysis."
@@ -1006,8 +1051,12 @@ class ChronicReportBuilder:
             previous_file = sorted(json_files)[-1]
             current_file = output_dir / f'chronic_summary_{current_month_str}.json'
             
+            # Debug logging (P4: reduced for log hygiene)
+            # print(f"[TREND] Looking for current file: {current_file}")
+            # print(f"[TREND] Files in output dir: {list(output_dir.glob('*.json'))}")
+            
             if not current_file.exists():
-                return "Current month data not found for trend analysis."
+                return f"Current month data not found for trend analysis. Looking for: {current_file}"
             
             # Load data
             with open(previous_file, 'r') as f:
@@ -1141,6 +1190,13 @@ class ChronicReportBuilder:
         
         if not prev_data or not curr_data:
             analysis.append(f"• Insufficient data for {category_name} comparison")
+            analysis.append("")
+            return analysis
+        
+        # Skip comparison if previous data contains placeholder circuit names
+        has_placeholders = any(k.startswith('CIRCUIT_') for k in prev_data.keys())
+        if has_placeholders:
+            analysis.append(f"• **{category_name}**: Previous month data unavailable for comparison")
             analysis.append("")
             return analysis
         
@@ -1394,9 +1450,18 @@ class ChronicReportBuilder:
         # A5: Add new chronic information to Chronic Corner trends
         base_trends = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
         
-        # Add new chronic information if any were identified
+        # P2-a: Add new chronic information with actual circuit IDs
         if metrics.get('new_chronic_count', 0) > 0:
-            trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''}."
+            # Get the actual new chronic circuit names
+            new_chronic_names = []
+            for provider, circuits in metrics.get('new_chronics', {}).items():
+                new_chronic_names.extend(circuits)
+            
+            if new_chronic_names:
+                circuit_list = ', '.join(new_chronic_names)
+                trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''} ({circuit_list})."
+            else:
+                trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''}."
         else:
             trends_text = base_trends
         doc.add_paragraph(trends_text)
@@ -1911,11 +1976,62 @@ class ChronicReportBuilder:
             print("LibreOffice not found. PDF conversion skipped.")
             return None
     
+    def _archive_previous_outputs(self, output_dir):
+        """Archive previous month's outputs to history/YYYY-MM/ directory"""
+        import shutil
+        from datetime import datetime
+        
+        # Try to determine the month from existing files
+        json_files = list(output_dir.glob("chronic_summary_*.json"))
+        if json_files:
+            # Extract month/year from filename like "chronic_summary_May_2025.json"
+            filename = json_files[0].stem
+            parts = filename.split('_')
+            if len(parts) >= 3 and parts[1] != 'summary':  # Skip "chronic_summary" prefix
+                month_name = parts[-2]
+                year = parts[-1]
+                try:
+                    archive_dir = Path(f"history/{year}-{datetime.strptime(month_name, '%B').month:02d}")
+                except ValueError:
+                    # Fallback if month name parsing fails
+                    now = datetime.now()
+                    archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+            else:
+                # Fallback to current date
+                now = datetime.now()
+                archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+        else:
+            # Fallback to current date minus 1 month
+            now = datetime.now()
+            archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+        
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Move all files from output_dir to archive_dir
+        for item in output_dir.iterdir():
+            dest = archive_dir / item.name
+            if dest.exists():
+                if dest.is_dir():
+                    shutil.rmtree(dest)
+                else:
+                    dest.unlink()
+            shutil.move(str(item), str(dest))
+        
+        print(f"📁 Archived previous outputs to {archive_dir}")
     
     def build_monthly_report(self, impacts_file, counts_file, template_file, output_dir, month_str=None):
         """Main pipeline to build the monthly report"""
         
         output_dir = Path(output_dir)
+        
+        # P2: Folder rollover logic - archive previous month's outputs
+        if output_dir.exists() and any(output_dir.iterdir()):
+            self._archive_previous_outputs(output_dir)
+        
+        # Clear and recreate output directory
+        if output_dir.exists():
+            import shutil
+            shutil.rmtree(output_dir)
         output_dir.mkdir(exist_ok=True)
         
         print("Starting monthly report build...")
@@ -1959,19 +2075,10 @@ class ChronicReportBuilder:
         # Generate text summary
         text_summary_output = self.generate_text_summary(chronic_data, metrics, output_dir, month_str)
         
-        # Generate trend analysis
-        trend_analysis = self.generate_trend_analysis(month_str, output_dir)
-        trend_analysis_output = output_dir / f"monthly_trend_analysis_{month_str}.txt"
-        with open(trend_analysis_output, 'w') as f:
-            f.write(trend_analysis)
-        
-        # Generate trend analysis Word document
-        trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
-        
         # v0.1.9: Generate metadata block
         metadata = self.generate_metadata(impacts_file, counts_file)
         
-        # Export data summary with metadata
+        # Export data summary with metadata BEFORE trend analysis
         summary_data = {
             'version': '0.1.9',
             'consistency_mode': 'hybrid',
@@ -1984,6 +2091,15 @@ class ChronicReportBuilder:
         
         with open(output_dir / f"chronic_summary_{month_str}.json", 'w') as f:
             json.dump(summary_data, f, indent=2, default=str)
+        
+        # P1-b: Generate trend analysis AFTER JSON is saved
+        trend_analysis = self.generate_trend_analysis(month_str, output_dir)
+        trend_analysis_output = output_dir / f"monthly_trend_analysis_{month_str}.txt"
+        with open(trend_analysis_output, 'w') as f:
+            f.write(trend_analysis)
+        
+        # Generate trend analysis Word document
+        trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
         
         print(f"Reports generated in {output_dir}")
         print(f"[SUCCESS] Chronic Corner (Word): {corner_word_output}")

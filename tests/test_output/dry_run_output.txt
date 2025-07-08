@@ -1,6 +1,0 @@
-[DRY RUN] Would create output directory: /Users/teffy/Desktop/reporting/tests/test_output
-[DRY RUN] Configuration:
-  - Exclude regional: False
-  - Show indicators: True
-  - Output directory: /Users/teffy/Desktop/reporting/tests/test_output
-[DRY RUN] Would process files and generate reports
