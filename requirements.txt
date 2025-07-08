@@ -6,3 +6,4 @@ python-docx>=0.8.11
 FreeSimpleGUI>=5.0.0
 openpyxl>=3.0.0
 tqdm>=4.65.0
+pyinstaller>=5.0.0

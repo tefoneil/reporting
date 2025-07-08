@@ -3,7 +3,23 @@
 ## 📋 **Overview**
 Automated monthly chronic circuit reporting system that processes Tableau exports and generates professional Word documents for COB deadlines.
 
-## 🚀 **Quick Start**
+## 🎯 **Choose Your Version**
+
+### **📥 For Non-Technical Users: Download Executable**
+**No Python installation required!** Just download and double-click:
+
+👉 **[Download Latest Release](https://github.com/tefoneil/reporting/releases)**
+
+- **Windows:** Download `Monthly_Report_Builder.exe`
+- **Mac:** Download `Monthly_Report_Builder.app`
+- See **[📖 User Guide](README_EXECUTABLE.md)** for complete instructions
+
+### **💻 For Developers: Python Source**
+Clone repository and run from source code (requires Python installation).
+
+---
+
+## 🚀 **Quick Start (Python Version)**
 
 ### **Step 1: Get Your Data Files**
 Download these 2 files from Tableau each month:
@@ -110,3 +126,45 @@ python monthly_reporting_cli.py \
   --counts "counts.xlsx" \
   --exclude-regional
 ```
+
+---
+
+## ✨ **Enhanced Features (v0.1.9-rc10)**
+
+### **🎯 Enhanced Chart Titles with Aggregated Insights**
+Charts now show immediate actionable metrics:
+- **"Top 5 by Ticket Volume - Total: 129"** (collective impact)
+- **"Top 5 by Cost to Serve - Total: $37,367"** (budget exposure)
+- **"Top 5 by Worst Availability - Average: 83.0%"** (performance baseline)
+
+### **💰 Accurate Cost Calculations**
+- Fixed critical 3x inflation bug
+- All costs now match source data exactly
+- Example: LZA010663 now shows $9,215 (was incorrectly $27,645)
+
+### **📊 Complete Trend Analysis**
+- Working month-over-month comparisons
+- New problem circuits vs improvements identified
+- Strategic recommendations with emerging patterns
+
+### **🎨 Professional Output**
+- Consistent enhanced titles across all formats (charts, Word docs, text)
+- Executive-ready insights with collective impact metrics
+- Clean formatting suitable for business presentations
+
+---
+
+## 🔧 **For Developers**
+
+### **Building Executable:**
+See **[📖 Build Instructions](BUILD_INSTRUCTIONS.md)** for creating standalone executables.
+
+### **Project Structure:**
+- **Source Code:** Complete Python implementation
+- **Documentation:** Technical guides and user manuals  
+- **Build System:** PyInstaller configuration for distribution
+- **Testing:** Comprehensive test suite for accuracy validation
+
+---
+
+*Monthly Report Builder v0.1.9-rc10 | Enhanced insights for network operations teams*
