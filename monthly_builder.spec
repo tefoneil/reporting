@@ -20,6 +20,10 @@ a = Analysis(
         ('requirements.txt', '.'),
     ],
     hiddenimports=[
+        # Local modules
+        'analyze_data',
+        'utils',
+        'analyze_trends',
         # Ensure all GUI dependencies are included
         'FreeSimpleGUI',
         'matplotlib.backends.backend_tkagg',
@@ -42,7 +46,6 @@ a = Analysis(
         'tkinter.test',
         'test',
         'unittest',
-        'pydoc',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
