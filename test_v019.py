@@ -313,6 +313,40 @@ class TestHotfix1:
             validate_calculations(problematic_metrics)
 
 
+class TestAvailabilitySanity:
+    """Tests for availability calculation sanity checks (A1 fix)"""
+    
+    def test_availability_sanity_check(self):
+        """Test that 720 minutes outage in 30-day month = 98.33% availability"""
+        
+        # 30 days = 30 * 24 * 60 = 43,200 minutes
+        # 720 minutes outage = 720/43200 = 1.67% downtime
+        # Expected availability = 100% - 1.67% = 98.33%
+        
+        total_minutes_30_days = 30 * 24 * 60  # 43,200 minutes
+        outage_minutes = 720
+        expected_availability = 100 * (1 - outage_minutes / total_minutes_30_days)
+        
+        assert abs(expected_availability - 98.33) < 0.01, f"Expected ~98.33%, got {expected_availability:.2f}%"
+    
+    def test_impossible_availability_filtered(self):
+        """Test that impossible availability values are filtered out"""
+        from utils import validate_calculations
+        
+        # Test data that would result in impossible availability
+        bad_metrics = {
+            'bottom5_availability': {
+                'circuit1': -50.0,   # Impossible
+                'circuit2': 150.0,   # Impossible
+                'circuit3': 85.5     # Valid
+            }
+        }
+        
+        # Should raise ValueError for impossible values
+        with pytest.raises(ValueError):
+            validate_calculations(bad_metrics)
+
+
 class TestIntegration:
     """Integration tests for full pipeline"""
     

@@ -504,7 +504,8 @@ class ChronicReportBuilder:
         final_new_chronic_count = len(new_chronics) - total_promoted if len(new_chronics) >= total_promoted else 0
         
         return {
-            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']) + total_promoted,
+            # A3: Calculate total using post-filtering counts to match TXT output
+            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']) + len(existing_chronics['media_chronics']),
             'media_chronics': len(existing_chronics['media_chronics']),
             'new_chronics': new_chronic_summary,
             'new_chronic_count': final_new_chronic_count,
@@ -644,27 +645,34 @@ class ChronicReportBuilder:
             outage_df = filter_test_circuits(outage_df, 'Config Item Name')
             circuit_outages = outage_df.groupby('Config Item Name')[outage_column].sum()
             
-            # P1-a: Always treat Outage Duration as minutes, convert to hours
-            if outage_column == 'Outage Duration':
-                print(f"Treating '{outage_column}' as minutes, converting to hours")
+            # A1: Fixed availability calculation - smarter unit detection and validation
+            max_outage_value = circuit_outages.max() if len(circuit_outages) > 0 else 0
+            
+            # Smart unit detection: if max outage > potential hours, it's likely in minutes
+            if max_outage_value > potential_hours:
+                print(f"Detected '{outage_column}' as minutes (max: {max_outage_value:.1f}), converting to hours")
                 outage_hours = circuit_outages / 60  # Convert minutes to hours
             else:
-                print(f"Using '{outage_column}' as hours directly")  
+                print(f"Detected '{outage_column}' as hours (max: {max_outage_value:.1f})")
                 outage_hours = circuit_outages
+            
+            # Additional sanity check: cap outages at potential hours (can't have more outage than time exists)
+            outage_hours = outage_hours.clip(upper=potential_hours)
             
             # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
             availability_pct = 100 * (1 - outage_hours / potential_hours)
             
-            # P1-a: Validate availability values
-            invalid_circuits = availability_pct[(availability_pct < 0) | (availability_pct > 100)]
-            if len(invalid_circuits) > 0:
-                logging.warning(f"Found {len(invalid_circuits)} circuits with invalid availability:")
-                for circuit, avail in invalid_circuits.items():
-                    outage_hrs = outage_hours.get(circuit, 0)
-                    logging.warning(f"  {circuit}: {avail:.1f}% (outage: {outage_hrs:.1f}h / {potential_hours}h)")
-            
-            # Filter to circuits with reasonable availability (0-100%)
+            # A1: Strict validation - only allow 0-100% availability
             valid_availability = availability_pct[(availability_pct >= 0) & (availability_pct <= 100)]
+            
+            # Log any circuits that were filtered due to impossible values
+            filtered_count = len(availability_pct) - len(valid_availability)
+            if filtered_count > 0:
+                logging.info(f"Filtered {filtered_count} circuits with impossible availability values")
+            
+            # Apply CID_TEST filtering to availability results (A2 fix)
+            valid_availability = valid_availability[~valid_availability.index.str.startswith('CID_TEST', na=False)]
+            
             avail_data = valid_availability.sort_values()
             metrics['bottom5_availability'] = avail_data.head(5).to_dict()
         
@@ -774,7 +782,13 @@ class ChronicReportBuilder:
             f.write(f"CHRONIC CIRCUITS LIST - {month_str.replace('_', ' ').upper()} REPORT\n")
             f.write("=" * 40 + "\n\n")
             
-            f.write(f"TOTAL CHRONIC CIRCUITS: {chronic_data['total_chronic_circuits']}\n\n")
+            # A3: Calculate actual count from the lists being written (post-filtering)
+            consistent = chronic_data.get('existing_chronics', {}).get('chronic_consistent', [])
+            inconsistent = chronic_data.get('existing_chronics', {}).get('chronic_inconsistent', [])
+            media = chronic_data.get('existing_chronics', {}).get('media_chronics', [])
+            actual_chronic_count = len(consistent) + len(inconsistent) + len(media)
+            
+            f.write(f"TOTAL CHRONIC CIRCUITS: {actual_chronic_count}\n\n")
             
             # Chronic Consistent
             consistent = chronic_data.get('existing_chronics', {}).get('chronic_consistent', [])
@@ -1377,7 +1391,14 @@ class ChronicReportBuilder:
         
         # Trends section
         doc.add_heading('Trends', level=2)
-        trends_text = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        # A5: Add new chronic information to Chronic Corner trends
+        base_trends = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        
+        # Add new chronic information if any were identified
+        if metrics.get('new_chronic_count', 0) > 0:
+            trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''}."
+        else:
+            trends_text = base_trends
         doc.add_paragraph(trends_text)
         
         # Special formatted metric block - 1-row 4-column table
