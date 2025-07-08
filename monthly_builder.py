@@ -24,7 +24,7 @@ import logging
 import sys
 import subprocess
 from analyze_data import get_rolling_ticket_total
-from utils import canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256, validate_calculations, filter_test_circuits
+from utils import canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256, validate_calculations, filter_test_circuits, format_circuit_display_name
 
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
@@ -836,14 +836,36 @@ class ChronicReportBuilder:
             f.write("By Ticket Count:\n")
             for circuit, count in list(metrics.get('top5_tickets', {}).items())[:5]:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
-                f.write(f"- {circuit_clean}: {count} tickets\n")
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {count} tickets\n")
             f.write("\n")
             
             # By Availability
             f.write("By Availability (Worst):\n")
             for circuit, avail in list(metrics.get('bottom5_availability', {}).items())[:5]:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
-                f.write(f"- {circuit_clean}: {avail:.2f}%\n")
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {avail:.2f}%\n")
+            f.write("\n")
+            
+            # P3-b: Add missing Cost category (5 lines)
+            f.write("By Cost to Serve (Highest):\n")
+            for circuit, cost in list(metrics.get('top5_cost', {}).items())[:5]:
+                circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: ${cost:,.0f}\n")
+            f.write("\n")
+            
+            # P3-b: Add missing MTBF category (5 lines)
+            f.write("By MTBF (Worst):\n")
+            for circuit, mtbf in list(metrics.get('bottom5_mtbf', {}).items())[:5]:
+                circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {mtbf:.1f} days\n")
             f.write("\n")
             
             # Notes
@@ -1080,6 +1102,17 @@ class ChronicReportBuilder:
                 trends.append(f"• **Gradual improvement** - {abs(total_change)} fewer chronic circuits")
             else:
                 trends.append("• **Stable chronic population** - consistent with previous month")
+            
+            # P2: Add new chronic circuit names to last line of trends
+            curr_new_chronics = curr_data.get('metrics', {}).get('new_chronics', {})
+            if curr_new_chronics:
+                new_chronic_names = []
+                for provider, circuits in curr_new_chronics.items():
+                    new_chronic_names.extend(circuits)
+                if new_chronic_names:
+                    circuit_list = ', '.join(new_chronic_names)
+                    trends.append("")
+                    trends.append(f"**New chronic circuits this month:** {circuit_list}")
             
             return "\n".join(trends)
             
@@ -1523,17 +1556,27 @@ class ChronicReportBuilder:
         pm_table.cell(0, 0).text = "Circuit ID"
         pm_table.cell(0, 1).text = "Incidents"
         
-        # Add 60-day monitoring circuits
-        for circuit in chronic_data['existing_chronics']['perf_60_day']:
-            row = pm_table.add_row()
-            row.cells[0].text = circuit
-            row.cells[1].text = "3"  # Default incident count
+        # P3-a: Sort performance monitoring circuits by ticket count (DESC)
+        all_perf_circuits = (chronic_data['existing_chronics']['perf_60_day'] + 
+                           chronic_data['existing_chronics']['perf_30_day'])
         
-        # Add 30-day monitoring circuits  
-        for circuit in chronic_data['existing_chronics']['perf_30_day']:
+        # Get ticket counts for performance monitoring circuits
+        perf_circuit_tickets = []
+        for circuit in all_perf_circuits:
+            # Get ticket count from top5_tickets if available, otherwise use reasonable defaults
+            ticket_count = metrics.get('top5_tickets', {}).get(circuit, 
+                                     7 if circuit in chronic_data['existing_chronics']['perf_30_day'] else 3)
+            perf_circuit_tickets.append((circuit, ticket_count))
+        
+        # Sort by ticket count descending (highest first)
+        perf_circuit_tickets.sort(key=lambda x: x[1], reverse=True)
+        
+        # Add circuits to table in descending ticket order
+        for circuit, ticket_count in perf_circuit_tickets:
             row = pm_table.add_row()
-            row.cells[0].text = circuit
-            row.cells[1].text = "7"  # Default incident count
+            # P4-a: Format circuit display name with provider prefix
+            row.cells[0].text = format_circuit_display_name(circuit)
+            row.cells[1].text = str(ticket_count)
         
         # Add charts to the bottom of the document
         if charts:
@@ -1678,7 +1721,21 @@ class ChronicReportBuilder:
         worst_availability = min(metrics.get('bottom5_availability', {}).values()) if metrics.get('bottom5_availability') else 95
         highest_cost = max(metrics.get('top5_cost', {}).values()) if metrics.get('top5_cost') else 0
         
-        takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month, requiring immediate attention and classification."
+        # P2: Enhanced new chronic identification in Key Takeaways
+        if metrics['new_chronic_count'] > 0:
+            # Get the actual new chronic circuit names
+            new_chronic_names = []
+            for provider, circuits in metrics.get('new_chronics', {}).items():
+                new_chronic_names.extend(circuits)
+            
+            if new_chronic_names:
+                circuit_list = ', '.join(new_chronic_names)
+                takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month: {circuit_list}. These require immediate attention and classification."
+            else:
+                takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month, requiring immediate attention and classification."
+        else:
+            takeaway1 = "• No new chronic circuits identified this month - network stability maintained."
+            
         takeaway2 = f"• Lowest performing circuit shows {worst_mtbf:.1f} days MTBF and {worst_availability:.1f}% availability, indicating significant reliability issues."
         takeaway3 = f"• Highest impact circuit generated ${highest_cost:,.0f} in cost to serve, representing major operational expense."
         

@@ -219,3 +219,45 @@ def filter_test_circuits(df, circuit_column='Config Item Name'):
         logging.info(f"Filtered out {filtered_count} test circuits from data")
     
     return filtered_df
+
+
+def format_circuit_display_name(circuit_id: str) -> str:
+    """
+    Format circuit ID for display by prepending provider name for abbreviated IDs.
+    
+    P4-a: Handle partial IDs that need provider context for clarity.
+    
+    Args:
+        circuit_id: Raw circuit identifier
+        
+    Returns:
+        str: Display-formatted circuit identifier with provider prefix if needed
+    """
+    if not circuit_id or not isinstance(circuit_id, str):
+        return str(circuit_id) if circuit_id else ""
+    
+    # Define abbreviated ID patterns and their provider mappings
+    provider_prefixes = {
+        'PTH': 'Telstra',       # PTH TOK EPL 90030025 -> Telstra PTH TOK EPL 90030025
+        'W1E': 'Verizon',       # W1E32092 -> Verizon W1E32092
+        'N96': 'Telstra',       # N9675474L -> Telstra N9675474L
+        'N28': 'Telstra',       # N2864477L -> Telstra N2864477L
+        'VID': 'Media',         # VID-1583 -> Media VID-1583
+        'IST': 'GTT',           # IST6022E#2_010G -> GTT IST6022E#2_010G
+        'HI/': 'GTT',           # HI/ADM/00697867 -> GTT HI/ADM/00697867
+        'SR2': 'PCCW',          # SR216187 -> PCCW SR216187
+        'SSO': 'Sansa',         # SSO-JBTKRHS002F-DWDM10 -> Sansa SSO-JBTKRHS002F-DWDM10
+        'FRO': 'Lumen',         # FRO2007133508 -> Lumen FRO2007133508
+        'LZA': 'NTT',           # LZA010663 -> NTT LZA010663
+        'LD0': 'NTT'            # LD017936 -> NTT LD017936
+    }
+    
+    # Check if circuit starts with any known abbreviation
+    for prefix, provider in provider_prefixes.items():
+        if circuit_id.startswith(prefix):
+            # Only add provider if not already present
+            if not circuit_id.startswith(provider):
+                return f"{provider} {circuit_id}"
+            break
+    
+    return circuit_id
