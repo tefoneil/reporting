@@ -3,18 +3,77 @@
 ## 🎯 **Project Overview**
 Advanced chronic circuit analysis and monthly reporting system that processes ServiceNow/Tableau exports to generate comprehensive Word documents, charts, and trend analysis for network operations teams.
 
-## 🚀 **Current Status: v0.1.9-rc9 PRODUCTION COMPLETE**
+## 🚀 **Current Status: v0.1.9-rc10 PRODUCTION ENHANCED**
 
-### **📋 Final Implementation - All Requirements Delivered**
-**Status:** ✅ COMPLETE - Perfect metrics, working trend analysis, professional output  
-**Branch:** `v0.1.9-hotfix2` (commit afac4c4 on GitHub)  
-**Impact:** Production-complete reporting with comprehensive month-over-month trend analysis
+### **📋 Latest Enhancement - Enhanced Chart Titles & Critical Cost Fix**
+**Status:** ✅ ENHANCED - Perfect metrics, actionable insights, accurate costs  
+**Branch:** `v0.1.9-hotfix2` (commit bf7dc0d on GitHub)  
+**Impact:** Production-enhanced reporting with aggregated chart insights and corrected cost calculations
 
 ---
 
 ## 📚 **Development History & Key Milestones**
 
-### **v0.1.9-rc9 (2025-07-08) - FINAL PRODUCTION RELEASE**
+### **v0.1.9-rc10 (2025-07-08) - ENHANCED ACTIONABLE INSIGHTS**
+
+#### **🎯 Enhanced Chart Titles Implementation**
+**Enhancement Request:** Add aggregated values to chart titles for immediate impact assessment.
+
+**Implementation Details:**
+- **Chart Title Enhancement:** Added totals/averages to all chart titles
+- **Text Summary Headers:** Enhanced with same aggregated metrics  
+- **Word Document Sections:** Circuit Analysis headers match chart titles exactly
+- **Cross-Format Consistency:** Identical enhanced titles across all output types
+
+**Results:**
+```
+BEFORE: "Top 5 Circuits by Ticket Volume"
+AFTER:  "Top 5 by Ticket Volume - Total: 129"
+
+BEFORE: "Top 5 Circuits by Cost to Serve"  
+AFTER:  "Top 5 by Cost to Serve - Total: $37,367"
+
+BEFORE: "Bottom 5 Circuits by Availability"
+AFTER:  "Top 5 by Worst Availability - Average: 83.0%"
+
+BEFORE: "Bottom 5 Circuits by MTBF (Worst Performing)"
+AFTER:  "Top 5 by Worst MTBF - Average: 3.6 days"
+```
+
+#### **💰 Critical Cost Calculation Fix**
+**Issue Discovered:** Cost values were inflated 3x due to dataframe merge duplication.
+
+**Root Cause Analysis:**
+- Cost data duplicated during `pd.merge()` of impacts and counts files
+- LZA010663 appears 3 times in impacts file, 1 time in counts file
+- `.sum()` aggregation multiplied pre-calculated costs: $9,215 × 3 = $27,645
+
+**Solution Implemented:**
+```python
+# BEFORE (incorrect):
+cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].sum()
+
+# AFTER (correct):  
+cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].first()
+```
+
+**Validation Results:**
+```
+Circuit ID          Source File    Report (Before)  Report (After)   ✅ Status
+LZA010663          $9,215         $27,645          $9,215           FIXED
+PTH TOK EPL        $8,775         $26,324          $8,775           FIXED  
+N2864477L          $7,057         $21,171          $7,057           FIXED
+500335805          $6,883         $20,650          $6,883           FIXED
+444282783          $5,437         $16,311          $5,437           FIXED
+```
+
+#### **📊 Professional Output Enhancement**
+- **Executive Readability:** Immediate visibility into collective impact metrics
+- **Business Decision Support:** "129 total tickets from top 5" vs individual values only
+- **Actionable Insights:** "$37,367 total cost exposure" for budget planning
+- **Consistent Branding:** Professional formatting across all report deliverables
+
+### **v0.1.9-rc9 (Previous) - FINAL PRODUCTION RELEASE**
 
 #### **🎯 Final Trend Analysis Implementation**
 **Issue Resolved:** Month-over-month trend analysis showed "Previous month data unavailable for comparison" across all sections.
