@@ -1047,9 +1047,17 @@ class ChronicReportBuilder:
             if not json_files:
                 return "No previous month data available for trend analysis."
             
-            # Get the most recent previous month
-            previous_file = sorted(json_files)[-1]
+            # Get the most recent previous month (excluding current month files)
             current_file = output_dir / f'chronic_summary_{current_month_str}.json'
+            
+            # Filter out any files that match the current month
+            previous_files = [f for f in json_files if current_month_str.lower() not in f.name.lower()]
+            
+            if not previous_files:
+                return f"No previous month data available for comparison with {current_month_str}."
+            
+            # Sort by modification time to get the most recent
+            previous_file = sorted(previous_files, key=lambda f: f.stat().st_mtime)[-1]
             
             # Debug logging (P4: reduced for log hygiene)
             # print(f"[TREND] Looking for current file: {current_file}")
@@ -1080,7 +1088,7 @@ class ChronicReportBuilder:
             curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)
             total_change = curr_total - prev_total
             
-            trends.append("## 📊 NETWORK HEALTH OVERVIEW")
+            trends.append("## NETWORK HEALTH OVERVIEW")
             trends.append(f"• **Total Chronic Circuits**: {prev_total} → {curr_total} ({total_change:+d} change)")
             trends.append(f"• **New Chronics Identified**: {curr_data.get('metrics', {}).get('new_chronic_count', 0)}")
             
@@ -1093,7 +1101,7 @@ class ChronicReportBuilder:
             trends.append("")
             
             # CHART-BASED ANALYSIS - TOP TICKET GENERATORS
-            trends.append("## 🔥 TOP TICKET GENERATORS ANALYSIS")
+            trends.append("## TOP TICKET GENERATORS ANALYSIS")
             prev_top5_tickets = prev_data.get('metrics', {}).get('top5_tickets', {})
             curr_top5_tickets = curr_data.get('metrics', {}).get('top5_tickets', {})
             
@@ -1103,7 +1111,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - COST CIRCUITS
-            trends.append("## 💰 COST TO SERVE ANALYSIS")
+            trends.append("## COST TO SERVE ANALYSIS")
             prev_top5_cost = prev_data.get('metrics', {}).get('top5_cost', {})
             curr_top5_cost = curr_data.get('metrics', {}).get('top5_cost', {})
             
@@ -1113,7 +1121,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - AVAILABILITY 
-            trends.append("## 📉 AVAILABILITY PERFORMANCE ANALYSIS")
+            trends.append("## AVAILABILITY PERFORMANCE ANALYSIS")
             prev_bottom5_avail = prev_data.get('metrics', {}).get('bottom5_availability', {})
             curr_bottom5_avail = curr_data.get('metrics', {}).get('bottom5_availability', {})
             
@@ -1123,7 +1131,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - MTBF
-            trends.append("## ⚡ RELIABILITY (MTBF) ANALYSIS") 
+            trends.append("## RELIABILITY (MTBF) ANALYSIS") 
             prev_bottom5_mtbf = prev_data.get('metrics', {}).get('bottom5_mtbf', {})
             curr_bottom5_mtbf = curr_data.get('metrics', {}).get('bottom5_mtbf', {})
             
@@ -1133,28 +1141,28 @@ class ChronicReportBuilder:
             ))
             
             # STRATEGIC RECOMMENDATIONS
-            trends.append("## 🎯 STRATEGIC RECOMMENDATIONS")
+            trends.append("## STRATEGIC RECOMMENDATIONS")
             red_flags, improvements, new_concerns = self._generate_strategic_insights(
                 prev_data, curr_data
             )
             
             if red_flags:
-                trends.append("### 🚨 IMMEDIATE ATTENTION REQUIRED:")
+                trends.append("### IMMEDIATE ATTENTION REQUIRED:")
                 trends.extend([f"• {flag}" for flag in red_flags])
                 trends.append("")
             
             if improvements:
-                trends.append("### 🎉 SUCCESS STORIES:")
+                trends.append("### SUCCESS STORIES:")
                 trends.extend([f"• {improvement}" for improvement in improvements])
                 trends.append("")
             
             if new_concerns:
-                trends.append("### 👀 EMERGING PATTERNS:")
+                trends.append("### EMERGING PATTERNS:")
                 trends.extend([f"• {concern}" for concern in new_concerns])
                 trends.append("")
             
             # Overall network trend assessment
-            trends.append("### 📈 OVERALL NETWORK TREND:")
+            trends.append("### OVERALL NETWORK TREND:")
             if total_change > 2:
                 trends.append(f"• **Growing chronic problem** - {total_change} new chronic circuits require root cause analysis")
             elif total_change > 0:
@@ -1275,22 +1283,22 @@ class ChronicReportBuilder:
         
         # Format analysis results
         if big_movers:
-            analysis.append("### 📊 Major Ranking Changes:")
+            analysis.append("### Major Ranking Changes:")
             analysis.extend([f"• {mover}" for mover in big_movers])
             analysis.append("")
         
         if new_entries:
-            analysis.append("### 🚨 New Problem Circuits:")
+            analysis.append("### New Problem Circuits:")
             analysis.extend([f"• {entry}" for entry in new_entries])
             analysis.append("")
         
         if graduates:
-            analysis.append("### 🎉 Improved Circuits:")
+            analysis.append("### Improved Circuits:")
             analysis.extend([f"• {grad}" for grad in graduates])
             analysis.append("")
         
         if significant_changes:
-            analysis.append("### 📈 Significant Value Changes:")
+            analysis.append("### Significant Value Changes:")
             analysis.extend([f"• {change}" for change in significant_changes])
             analysis.append("")
         
