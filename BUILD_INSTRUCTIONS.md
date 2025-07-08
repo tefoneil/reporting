@@ -1,8 +1,8 @@
-# Build Instructions - Creating the Executable
+# Build Instructions - Creating the RBuilder Executable
 
-## 🔨 **For Developers: How to Build the EXE**
+## 🔨 **For Developers: How to Build the RBuilder EXE**
 
-This document explains how to create the standalone executable from the Python source code.
+This document explains how to create the standalone RBuilder executable from the Python source code.
 
 ---
 
@@ -31,7 +31,7 @@ python build_exe.py
 ### **Method 2: Manual PyInstaller Command**
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name "Monthly_Report_Builder" monthly_builder.py
+pyinstaller --onefile --windowed --name "RBuilder" monthly_builder.py
 ```
 
 ### **Method 3: Using Spec File**
@@ -64,9 +64,9 @@ The `monthly_builder.spec` file includes:
 ### **After Successful Build:**
 ```
 dist/
-├── Monthly_Report_Builder.exe     # Windows executable
-├── Monthly_Report_Builder.app/    # macOS app bundle (Mac only)
-└── Monthly_Report_Builder         # Unix executable
+├── RBuilder.exe     # Windows executable
+├── RBuilder.app/    # macOS app bundle (Mac only)
+└── RBuilder         # Unix executable
 ```
 
 ### **File Sizes:**

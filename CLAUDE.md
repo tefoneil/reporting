@@ -1,19 +1,19 @@
-# Monthly Reporting Module - Claude Context
+# RBuilder - Claude Context
 
-## 🎯 **Project: Monthly Chronic Circuit Reporting System**
-Advanced chronic circuit analysis and reporting platform that processes ServiceNow/Tableau exports to generate comprehensive Word documents, charts, and trend analysis for network operations teams.
+## 🎯 **Project: RBuilder Circuit Analysis System**
+Advanced circuit analysis and reporting platform that processes Tableau exports to generate comprehensive Word documents, charts, and trend analysis for operations teams.
 
-## 🚀 **Current Status: v0.1.9-rc12 PRODUCTION READY + EXECUTABLE**
+## 🚀 **Current Status: v0.1.9-rc13 PRODUCTION READY + EXECUTABLE**
 
 ### **📋 Latest Achievement - Complete Executable Distribution System**
 **Status:** ✅ COMPLETE - Production system + working standalone executable  
 **Branch:** `v0.1.9-hotfix2` (pushed to GitHub at 7df3e15)  
-**Impact:** Full deployment-ready system with 77MB executable including complete historical data
+**Impact:** Full deployment-ready system with 77MB RBuilder executable including complete historical data
 
-### **🔧 Critical Executable Enhancement - Complete Historical Data Integration**
-**Latest Achievement:** 77MB executable with pre-loaded May-June 2025 historical data  
-**Previous Fix:** Resolved PyInstaller pydoc module dependency blocking seaborn  
-**Current Status:** Fully functional executable with complete trend analysis capability  
+### **🔧 Critical Executable Enhancement - Discrete Naming & Complete Integration**
+**Latest Achievement:** 77MB RBuilder executable with pre-loaded May-June 2025 historical data  
+**Security Enhancement:** Changed name from "Monthly_Report_Builder" to "RBuilder" for discretion  
+**Current Status:** Fully functional RBuilder executable with complete trend analysis capability  
 **Result:** Zero setup required - trend analysis works immediately on any Windows PC
 
 ### **💼 Complete Distribution Strategy:**

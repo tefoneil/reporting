@@ -1,16 +1,16 @@
 @echo off
-REM Monthly Report Builder - GUI Launcher
+REM RBuilder - GUI Launcher
 REM Double-click this file to launch the reporting tool
 
-echo Starting Monthly Report Builder...
+echo Starting RBuilder...
 echo.
 
 REM Check if executable exists
-if exist "Monthly_Report_Builder.exe" (
+if exist "RBuilder.exe" (
     echo Launching GUI...
-    start "" "Monthly_Report_Builder.exe"
+    start "" "RBuilder.exe"
 ) else (
-    echo ERROR: Monthly_Report_Builder.exe not found!
+    echo ERROR: RBuilder.exe not found!
     echo Please ensure the executable is in the same folder as this launcher.
     echo.
     pause

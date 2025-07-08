@@ -1,7 +1,7 @@
-# Monthly Chronic Circuit Reporting
+# RBuilder - Circuit Reporting System
 
 ## 📋 **Overview**
-Automated monthly chronic circuit reporting system that processes Tableau exports and generates professional Word documents for COB deadlines.
+Automated circuit reporting system that processes Tableau exports and generates professional Word documents for business operations.
 
 ## 🎯 **Choose Your Version**
 
@@ -10,8 +10,8 @@ Automated monthly chronic circuit reporting system that processes Tableau export
 
 👉 **[Download Latest Release](https://github.com/tefoneil/reporting/releases)**
 
-- **Windows:** Download `Monthly_Report_Builder.exe`
-- **Mac:** Download `Monthly_Report_Builder.app`
+- **Windows:** Download `RBuilder.exe`
+- **Mac:** Download `RBuilder`
 - See **[📖 User Guide](README_EXECUTABLE.md)** for complete instructions
 
 ### **💻 For Developers: Python Source**
@@ -129,7 +129,7 @@ python monthly_reporting_cli.py \
 
 ---
 
-## ✨ **Enhanced Features (v0.1.9-rc12)**
+## ✨ **Enhanced Features (v0.1.9-rc13)**
 
 ### **🎯 Enhanced Chart Titles with Aggregated Insights**
 Charts now show immediate actionable metrics:
@@ -167,4 +167,4 @@ See **[📖 Build Instructions](BUILD_INSTRUCTIONS.md)** for creating standalone
 
 ---
 
-*Monthly Report Builder v0.1.9-rc12 | Complete executable distribution system for network operations teams*
+*RBuilder v0.1.9-rc13 | Complete executable distribution system for operations teams*

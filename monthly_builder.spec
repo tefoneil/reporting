@@ -66,7 +66,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='Monthly_Report_Builder',
+    name='RBuilder',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

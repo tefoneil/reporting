@@ -34,17 +34,17 @@ CHRONIC INCONSISTENT (15 circuits):
 
 MEDIA CHRONICS (11 circuits):
 -----------------------------------
-1. VID-1575
+1. VID-0875
 2. VID-1574
-3. VID-1597
-4. VID-1530
-5. VID-1598
-6. VID-0875
-7. VID-1146
+3. VID-1598
+4. VID-1575
+5. VID-1530
+6. VID-1146
+7. VID-1582
 8. VID-1525
-9. VID-1583
-10. VID-1581
-11. VID-1582
+9. VID-1597
+10. VID-1583
+11. VID-1581
 
 NEW CHRONIC CIRCUITS (1 circuit):
 -----------------------------------
@@ -57,28 +57,28 @@ PERFORMANCE MONITORING:
 
 TOP 5 WORST PERFORMERS:
 -----------------------------------
-By Ticket Count:
+Top 5 by Ticket Volume - Total: 129:
 - 500334193 / 81-4W3EOZV: 33 tickets
 - PCCW SR216187: 31 tickets
 - Telstra PTH TOK EPL 90030025: 23 tickets
 - 091NOID1143035717849: 21 tickets
 - Verizon W1E32092: 21 tickets
 
-By Availability (Worst):
+Top 5 by Worst Availability - Average: 83.0%:
 - NTT LZA010663: 78.98%
 - Telstra PTH TOK EPL 90030025: 79.98%
 - Telstra N2864477L: 83.90%
 - Cirion 500335805: 84.30%
 - 444282783: 87.60%
 
-By Cost to Serve (Highest):
-- NTT LZA010663: $27,645
-- Telstra PTH TOK EPL 90030025: $26,324
-- Telstra N2864477L: $21,171
-- Cirion 500335805: $20,650
-- 444282783: $16,311
+Top 5 by Cost to Serve - Total: $37,367:
+- NTT LZA010663: $9,215
+- Telstra PTH TOK EPL 90030025: $8,775
+- Telstra N2864477L: $7,057
+- Cirion 500335805: $6,883
+- 444282783: $5,437
 
-By MTBF (Worst):
+Top 5 by Worst MTBF - Average: 3.6 days:
 - 500334193 / 81-4W3EOZV: 2.7 days
 - PCCW SR216187: 2.9 days
 - Telstra PTH TOK EPL 90030025: 3.9 days

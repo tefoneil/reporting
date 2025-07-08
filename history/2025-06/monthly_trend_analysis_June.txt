@@ -2,28 +2,69 @@
 ## May 2025 → June
 ======================================================================
 
-## 📊 NETWORK HEALTH OVERVIEW
-• **Total Chronic Circuits**: 25 → 23 (-2 change)
+## NETWORK HEALTH OVERVIEW
+• **Total Chronic Circuits**: 23 → 23 (+0 change)
 • **New Chronics Identified**: 1
-• **Consistent Circuits**: 0 → 8 (+8)
+• **Consistent Circuits**: 8 → 8 (+0)
 
-## 🔥 TOP TICKET GENERATORS ANALYSIS
-• **Ticket Generators**: Previous month data unavailable for comparison
+## TOP TICKET GENERATORS ANALYSIS
+### New Problem Circuits:
+• **091NOID1143035717849** entered at #4 (21tickets)
+• **Telstra** entered at #3 (23tickets)
+• **PCCW** entered at #2 (31tickets)
+• **Verizon** entered at #5 (21tickets)
 
-## 💰 COST TO SERVE ANALYSIS
-• **Cost Circuits**: Previous month data unavailable for comparison
+### Improved Circuits:
+• **LZA010635** improved out of worst performers (was #5)
+• **W1E32092** improved out of worst performers (was #3)
+• **PTH** improved out of worst performers (was #4)
+• **SR216187** improved out of worst performers (was #1)
 
-## 📉 AVAILABILITY PERFORMANCE ANALYSIS
-• **Worst Availability**: Previous month data unavailable for comparison
+## COST TO SERVE ANALYSIS
+### New Problem Circuits:
+• **Cirion** entered at #4 ($6,883)
+• **Telstra** entered at #3 ($7,057)
+• **NTT** entered at #1 ($9,215)
 
-## ⚡ RELIABILITY (MTBF) ANALYSIS
-• **Worst MTBF**: Previous month data unavailable for comparison
+### Improved Circuits:
+• **LZA010663** improved out of worst performers (was #2)
+• **PTH** improved out of worst performers (was #3)
+• **500335805** improved out of worst performers (was #4)
+• **SR216187** improved out of worst performers (was #1)
 
-## 🎯 STRATEGIC RECOMMENDATIONS
-### 👀 EMERGING PATTERNS:
-• New high-cost circuits emerged: 444282783, NTT, Telstra, Cirion, Telstra
+### Significant Value Changes:
+• **444282783** decreased by $-9,942$ (-64.6%) ✅ IMPROVED
 
-### 📈 OVERALL NETWORK TREND:
-• **Gradual improvement** - 2 fewer chronic circuits
+## AVAILABILITY PERFORMANCE ANALYSIS
+### New Problem Circuits:
+• **Cirion** entered at #4 (84.3%)
+• **Telstra** entered at #3 (83.9%)
+• **NTT** entered at #1 (79.0%)
+
+### Improved Circuits:
+• **LZA010663** improved out of worst performers (was #2)
+• **PTH** improved out of worst performers (was #3)
+• **500335805** improved out of worst performers (was #4)
+• **SR216187** improved out of worst performers (was #1)
+
+## RELIABILITY (MTBF) ANALYSIS
+### New Problem Circuits:
+• **091NOID1143035717849** entered at #4 (4.3 days)
+• **Telstra** entered at #3 (3.9 days)
+• **PCCW** entered at #2 (2.9 days)
+• **Verizon** entered at #5 (4.3 days)
+
+### Improved Circuits:
+• **LZA010635** improved out of worst performers (was #5)
+• **W1E32092** improved out of worst performers (was #3)
+• **PTH** improved out of worst performers (was #4)
+• **SR216187** improved out of worst performers (was #1)
+
+## STRATEGIC RECOMMENDATIONS
+### EMERGING PATTERNS:
+• New high-cost circuits emerged: NTT, Telstra, Cirion, Telstra
+
+### OVERALL NETWORK TREND:
+• **Stable chronic population** - consistent with previous month
 
 **New chronic circuits this month:** 444282783

@@ -13,9 +13,9 @@ import signal
 def test_executable():
     """Test that the executable starts and imports all required modules."""
     
-    executable_path = "./dist/Monthly_Report_Builder"
+    executable_path = "./dist/RBuilder"
     
-    print("🔍 Testing Monthly Report Builder Executable")
+    print("🔍 Testing RBuilder Executable")
     print("=" * 50)
     
     # Test 1: File exists and is executable
@@ -79,7 +79,7 @@ def test_executable():
 
 def main():
     """Main test function."""
-    print("Monthly Report Builder - Executable Test")
+    print("RBuilder - Executable Test")
     print("This will verify the executable is working before Windows deployment\n")
     
     success = test_executable()
