@@ -177,6 +177,12 @@ Examples:
             print(f"📊 Found {chronic_data['total_chronic_circuits']} existing chronic circuits")
             print(f"🆕 Identified {chronic_data['new_chronic_count']} new chronic circuits")
             
+            # v0.1.8: Data quality warnings
+            if hasattr(builder, 'ticket_coercion_warning') and builder.ticket_coercion_warning:
+                print(f"\n⚠️  Data Quality Warning: >10% of ticket count values could not be converted to numbers")
+            if hasattr(builder, 'data_quality_warning') and builder.data_quality_warning:
+                print(f"⚠️  Data Quality Warning: >10% of month cells were blank and forward-filled")
+            
             print(f"\n📄 Generated files:")
             for file_path in output_dir.rglob('*'):
                 if file_path.is_file() and file_path.suffix in {'.docx', '.png', '.txt', '.json', '.pdf'}:

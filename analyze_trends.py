@@ -5,10 +5,23 @@ Analyzes patterns and changes between monthly reports
 """
 
 import json
+import os
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Tuple, Any
 from datetime import datetime
+
+# v0.1.7-b Trend analysis thresholds (separate from core chronic logic)
+TREND_THRESH = {
+    "tickets": int(os.getenv("MR_TREND_TICKETS", 1)),
+    "cost_usd": int(os.getenv("MR_TREND_COST_USD", 500)),
+    "availability_pct": float(os.getenv("MR_TREND_AVAIL_PCT", 2)),
+    "mtbf_days": float(os.getenv("MR_TREND_MTBF_DAYS", 0.2)),
+    "rank": int(os.getenv("MR_TREND_RANK", 1)),
+}
+
+# Core chronic threshold (unchanged)
+CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
 
 def load_monthly_data(output_dir: str = './final_output') -> Dict[str, Dict]:
     """Load all available monthly JSON reports"""
@@ -78,7 +91,7 @@ def analyze_ticket_trends(monthly_data: Dict[str, Dict]) -> Dict[str, Any]:
             trends['circuit_changes'][comparison_key].append(circuit_change)
             
             # Track significant movers
-            if abs(change) >= 5:  # 5+ ticket change threshold
+            if abs(change) >= TREND_THRESH["tickets"]:  # Trend analysis threshold
                 if change > 0:
                     trends['top_movers']['increased'].append(circuit_change)
                 else:
@@ -160,13 +173,13 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
         changes = ticket_trends['circuit_changes'][latest_comparison]
         
         # Sort by absolute change for most significant movers
-        significant_changes = [c for c in changes if abs(c['change']) >= 2]
+        significant_changes = [c for c in changes if abs(c['change']) >= TREND_THRESH["tickets"]]
         significant_changes.sort(key=lambda x: abs(x['change']), reverse=True)
         
         summary.append("## TICKET VOLUME TRENDS")
         
         if significant_changes:
-            summary.append("### Most Significant Changes (≥2 tickets):")
+            summary.append(f"### Most Significant Changes (≥{TREND_THRESH['tickets']} tickets):")
             for change in significant_changes[:10]:  # Top 10
                 direction = "↑" if change['change'] > 0 else "↓"
                 circuit_clean = change['circuit'].split(' ')[0]  # Remove indicators
@@ -268,6 +281,12 @@ def main():
         return
     
     print(f"Loaded data for months: {', '.join(sorted(monthly_data.keys()))}")
+    
+    # Check for insufficient data
+    if len(monthly_data) < 2:
+        warning_banner = "⚠️  Trend Analysis skipped – prior summary not found in folder."
+        print(f"\n{warning_banner}")
+        return
     
     # Generate trend summary
     summary = generate_trend_summary(monthly_data)

@@ -5,6 +5,71 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] – 2025-07-08
+
+### Added
+- **Production hardening**: Frozen legacy list from May 2025 authoritative baseline
+- **Metadata block**: 6-key metadata in JSON output (tool_version, python_version, git_commit, run_timestamp, crosstab_sha256, counts_sha256)
+- **Low ticket median warning**: Banner alert when median drops from >1 to ≤1 tickets
+- **Comprehensive pytest suite**: 12 tests across 4 test classes validating canonical_id, ticket totals, baseline freeze, and banner warnings
+- **SHA256 file hashing**: Audit trail for input data integrity
+
+### Changed
+- **Canonical ID function**: Updated with simplified v0.1.9 rules (digits-hyphen-letters suffix trimming)
+- **Legacy status loading**: Now uses frozen `docs/frozen_legacy_list.json` as authoritative baseline
+- **Utils module**: Extracted shared utilities (canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256)
+
+### Technical Details
+- Frozen legacy list contains 36 circuits (8 consistent, 17 inconsistent, 11 media)
+- Git commit tracking for reproducibility
+- ISO timestamp format for run metadata
+- Cached SHA256 computation for performance
+- Pytest fixtures for test data management
+
+## [0.1.8-audit] – 2025-07-08
+
+### Added
+- **Audit trail enhancement**: Added `raw_ticket_count_crosstab` field to circuit JSON entries for transparency
+
+## [0.1.8] – 2025-07-08
+
+### Changed
+- **Column mappings updated** to use standardized Tableau export columns:
+  - Ticket totals: `Distinct count of Inc Nbr` (from impacts crosstab)
+  - Outage data: `Outage Duration` (in minutes)
+  - Months chronic: `COUNTD Months` (from counts workbook)
+- **Test circuit filtering** - automatically excludes:
+  - Circuits where `Config Item Name` starts with `CID_TEST`
+  - Circuits where `Vendor` contains "Test"
+- **Availability calculation** updated to match reference formula:
+  - `Availability = 100 × (1 – OutageHours / PotentialHours)`
+  - Automatic unit detection: if any outage > (days × 24 × 2), assumes minutes
+- **Data quality warnings** added for >10% non-numeric ticket values
+
+### Technical Details
+- Smart unit detection prevents double-division if data source switches units
+- Test circuit filtering applied early in data pipeline for all metrics
+- Availability now correctly uses outage minutes converted to hours
+- Data quality banners shown in both CLI and GUI modes
+
+## [0.1.7-b] – 2025-07-08
+
+### Changed
+- Lower thresholds apply **only** inside Monthly Trend Analysis 
+  (tickets ≥ 1, cost ≥ $500, availability ≥ 2 pp, MTBF ≥ 0.2 days, rank ≥ 1).
+- Core chronic thresholds remain: tickets ≥ 6, cost ≥ $1 000, availability ≥ 5 pp, MTBF ≥ 0.5 days, rank ≥ 2.
+- Added warning when prior-month summary JSON is missing.
+
+### Technical Details
+- New `TREND_THRESH` dict in `analyze_trends.py` with environment variable support:
+  - `MR_TREND_TICKETS` (default: 1)
+  - `MR_TREND_COST_USD` (default: 500)
+  - `MR_TREND_AVAIL_PCT` (default: 2.0)
+  - `MR_TREND_MTBF_DAYS` (default: 0.2)
+  - `MR_TREND_RANK` (default: 1)
+- Core chronic classification logic in `monthly_builder.py` unchanged
+- Chronic counts and tables remain stable; only trend analysis shows increased sensitivity
+
 ## [0.1.6] – 2025-07-07
 
 ### Changed

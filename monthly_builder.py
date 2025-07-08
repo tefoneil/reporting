@@ -20,64 +20,19 @@ import seaborn as sns
 import FreeSimpleGUI as sg
 import os
 import re
+import logging
+import sys
+import subprocess
 from analyze_data import get_rolling_ticket_total
+from utils import canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256, validate_calculations, filter_test_circuits, format_circuit_display_name
 
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
 DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy mode, 1 = dynamic mode
+
+# Core chronic classification thresholds (unchanged in v0.1.7-b)
 AVAIL_THRESH_PCT = float(os.getenv("MR_THRESH_AVAIL_PCT", 5.0))  # Availability significant change threshold
 
-
-def canonical_id(raw: str) -> str:
-    """
-    Extract canonical circuit ID by splitting on first delimiter.
-    
-    Rules:
-    1. Find first occurrence of any delimiter in precedence order: '_', '/', ' ', '-'
-    2. For '-': only split if it follows ≥3 digits  
-    3. Otherwise return original string
-    
-    Examples:
-    - 091NOID1143035717419_889599 → 091NOID1143035717419
-    - 500335805-CH1/EXTRA → 500335805 (hyphen at pos 9, slash at pos 13, hyphen wins)
-    - VID-1583 → VID-1583 (no split - letters before hyphen)
-    """
-    if not raw or not isinstance(raw, str):
-        return str(raw) if raw is not None else ""
-    
-    # Find first occurrence of each delimiter
-    # For hyphen: find first hyphen that has ≥3 digits immediately before it
-    hyphen_pos = -1
-    for i, char in enumerate(raw):
-        if char == '-':
-            # Check if there are ≥3 digits immediately before this hyphen
-            digits_before = 0
-            j = i - 1
-            while j >= 0 and raw[j].isdigit():
-                digits_before += 1
-                j -= 1
-            if digits_before >= 3:
-                hyphen_pos = i
-                break
-    
-    delimiters = [
-        ('_', raw.find('_')),
-        ('/', raw.find('/')),
-        (' ', raw.find(' ')),
-        ('-', hyphen_pos)  # Conditional hyphen
-    ]
-    
-    # Filter out delimiters not found (-1) and find the earliest position
-    found_delimiters = [(delim, pos) for delim, pos in delimiters if pos != -1]
-    
-    if not found_delimiters:
-        return raw
-    
-    # Get the delimiter that appears first (lowest position)
-    first_delim, first_pos = min(found_delimiters, key=lambda x: x[1])
-    
-    # Split at the specific position, not using generic split (which finds first occurrence)
-    return raw[:first_pos]
 
 
 class ChronicReportBuilder:
@@ -116,6 +71,20 @@ class ChronicReportBuilder:
         if 'Configuration Item Name' in impacts_df.columns:
             impacts_df = impacts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
         
+        # v0.1.8: Filter out test circuits
+        initial_count = len(impacts_df)
+        if 'Config Item Name' in impacts_df.columns:
+            # Filter CID_TEST circuits
+            test_filter = impacts_df['Config Item Name'].str.startswith('CID_TEST', na=False)
+            if 'Vendor' in impacts_df.columns:
+                # Also filter vendors containing 'Test'
+                test_filter |= impacts_df['Vendor'].str.contains('Test', case=False, na=False)
+            
+            impacts_df = impacts_df[~test_filter]
+            filtered_count = initial_count - len(impacts_df)
+            if filtered_count > 0:
+                print(f"Filtered out {filtered_count} test circuits from impacts data")
+        
         # Fix: Forward-fill blank month cells to prevent 0-ticket miscounts
         blank_percentage = 0
         if 'Inc Resolved At (Month / Year)' in impacts_df.columns:
@@ -124,7 +93,7 @@ class ChronicReportBuilder:
             blank_percentage = (blank_count / total_rows * 100) if total_rows > 0 else 0
             if blank_count > 0:
                 print(f"Forward-filling {blank_count} blank month cells ({blank_percentage:.1f}% of data)")
-                impacts_df['Inc Resolved At (Month / Year)'].ffill(inplace=True)
+                impacts_df.loc[:, 'Inc Resolved At (Month / Year)'] = impacts_df['Inc Resolved At (Month / Year)'].ffill()
         
         # Store data quality info for GUI warning
         self.data_quality_warning = blank_percentage > 10
@@ -140,6 +109,20 @@ class ChronicReportBuilder:
         # Handle column aliasing for Config Item Name
         if 'Configuration Item Name' in counts_df.columns:
             counts_df = counts_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
+        
+        # v0.1.8: Filter out test circuits from counts data too
+        initial_count = len(counts_df)
+        if 'Config Item Name' in counts_df.columns:
+            # Filter CID_TEST circuits
+            test_filter = counts_df['Config Item Name'].str.startswith('CID_TEST', na=False)
+            if 'Vendor' in counts_df.columns:
+                # Also filter vendors containing 'Test'
+                test_filter |= counts_df['Vendor'].str.contains('Test', case=False, na=False)
+            
+            counts_df = counts_df[~test_filter]
+            filtered_count = initial_count - len(counts_df)
+            if filtered_count > 0:
+                print(f"Filtered out {filtered_count} test circuits from counts data")
         
         # Clean numeric columns that might have comma formatting
         for col in impacts_df.columns:
@@ -158,7 +141,21 @@ class ChronicReportBuilder:
         
         # Add numeric coercion data quality check for ticket counts
         ticket_column = 'Distinct count of Inc Nbr'
-        if ticket_column in counts_df.columns:
+        if ticket_column in impacts_df.columns:
+            # Ensure ticket column is numeric in impacts_df too
+            impacts_df[ticket_column] = pd.to_numeric(impacts_df[ticket_column], errors='coerce')
+            
+            # Check for non-numeric coercion failures
+            non_numeric_count = impacts_df[ticket_column].isna().sum()
+            total_ticket_rows = len(impacts_df)
+            non_numeric_ratio = (non_numeric_count / total_ticket_rows) if total_ticket_rows > 0 else 0
+            
+            # Store warning flag for GUI
+            self.ticket_coercion_warning = non_numeric_ratio > 0.10
+            
+            if non_numeric_count > 0:
+                print(f"Ticket count coercion: {non_numeric_count} non-numeric values ({non_numeric_ratio:.1%} of data)")
+        elif ticket_column in counts_df.columns:
             # Ensure ticket column is numeric
             counts_df[ticket_column] = pd.to_numeric(counts_df[ticket_column], errors='coerce')
             
@@ -178,53 +175,84 @@ class ChronicReportBuilder:
         return impacts_df, counts_df
     
     def load_baseline_status(self, output_dir='./final_output'):
-        """Load baseline legacy status from prior chronic summaries (May 2025 cutover)"""
+        """Load baseline legacy status from frozen legacy list (v0.1.9+)"""
         baseline_status = {}
         baseline_ids = set()
         cutover_found = False
         
         try:
             from pathlib import Path
-            import glob
             
-            # Scan for chronic summary JSON files
-            output_path = Path(output_dir)
-            if output_path.exists():
-                json_files = list(output_path.glob('chronic_summary_*.json'))
-                
-                # Sort by filename to find earliest available summary
-                json_files.sort()
-                
-                for json_file in json_files:
-                    try:
-                        with open(json_file, 'r') as f:
-                            summary_data = json.load(f)
-                        
-                        # Check if this is May 2025 or earlier
-                        filename = json_file.name
-                        if 'May_2025' in filename or any(month in filename for month in 
-                            ['January_2025', 'February_2025', 'March_2025', 'April_2025']):
-                            cutover_found = True
+            # v0.1.9: Load from frozen legacy list first
+            frozen_legacy_path = Path('./docs/frozen_legacy_list.json')
+            if frozen_legacy_path.exists():
+                try:
+                    with open(frozen_legacy_path, 'r') as f:
+                        frozen_data = json.load(f)
+                    
+                    # Map frozen legacy statuses using canonical IDs, excluding test circuits
+                    for circuit in frozen_data.get('chronic_consistent', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Consistent'
+                            baseline_ids.add(canonical)
+                    
+                    for circuit in frozen_data.get('chronic_inconsistent', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Inconsistent'
+                            baseline_ids.add(canonical)
+                    
+                    for circuit in frozen_data.get('media_chronics', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Media Chronic'
+                        baseline_ids.add(canonical)
+                    
+                    cutover_found = True
+                    logging.info(f"Loaded {len(baseline_status)} circuits from frozen legacy list")
+                    
+                except (json.JSONDecodeError, KeyError) as e:
+                    logging.warning(f"Failed to load frozen legacy list: {e}")
+            
+            # Fallback: scan for chronic summary JSON files if frozen list not available
+            if not cutover_found:
+                logging.info("Frozen legacy list not found, falling back to JSON scan")
+                output_path = Path(output_dir)
+                if output_path.exists():
+                    json_files = list(output_path.glob('chronic_summary_*.json'))
+                    json_files.sort()
+                    
+                    for json_file in json_files:
+                        try:
+                            with open(json_file, 'r') as f:
+                                summary_data = json.load(f)
                             
-                            # Extract legacy status from existing chronics
-                            existing = summary_data.get('chronic_data', {}).get('existing_chronics', {})
-                            
-                            # Map consistent/inconsistent statuses using canonical IDs
-                            for circuit in existing.get('chronic_consistent', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Consistent'
-                                baseline_ids.add(canonical)
-                            
-                            for circuit in existing.get('chronic_inconsistent', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Inconsistent'
-                                baseline_ids.add(canonical)
-                            
-                            # Media chronics maintain their status
-                            for circuit in existing.get('media_chronics', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Media Chronic'
-                                baseline_ids.add(canonical)
+                            # Check if this is May 2025 or earlier
+                            filename = json_file.name
+                            if 'May_2025' in filename or any(month in filename for month in 
+                                ['January_2025', 'February_2025', 'March_2025', 'April_2025']):
+                                cutover_found = True
+                                
+                                # Extract legacy status from existing chronics
+                                existing = summary_data.get('chronic_data', {}).get('existing_chronics', {})
+                                
+                                # Map consistent/inconsistent statuses using canonical IDs
+                                for circuit in existing.get('chronic_consistent', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Consistent'
+                                    baseline_ids.add(canonical)
+                                
+                                for circuit in existing.get('chronic_inconsistent', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Inconsistent'
+                                    baseline_ids.add(canonical)
+                                
+                                # Media chronics maintain their status
+                                for circuit in existing.get('media_chronics', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Media Chronic'
+                                    baseline_ids.add(canonical)
                             
                             # NEW: Include prior month's New Chronics for promotion evaluation
                             new_chronics_data = summary_data.get('chronic_data', {}).get('new_chronics', {})
@@ -236,11 +264,11 @@ class ChronicReportBuilder:
                                     baseline_ids.add(canonical)
                                     promotion_count += 1
                             
-                            print(f"📊 Loaded baseline status from {json_file.name}: {len(baseline_status)} circuits ({len(baseline_status) - promotion_count} legacy + {promotion_count} pending promotion)")
-                            break
-                    except Exception as file_error:
-                        print(f"⚠️  Error reading {json_file.name}: {file_error}")
-                        continue
+                                print(f"📊 Loaded baseline status from {json_file.name}: {len(baseline_status)} circuits ({len(baseline_status) - promotion_count} legacy + {promotion_count} pending promotion)")
+                                break
+                        except Exception as file_error:
+                            print(f"⚠️  Error reading {json_file.name}: {file_error}")
+                            continue
                 
         except Exception as e:
             print(f"⚠️  Error loading baseline status: {e}")
@@ -250,9 +278,27 @@ class ChronicReportBuilder:
         
         return baseline_status, baseline_ids
     
+    def _clean_outage(self, df):
+        """Deduplicate and convert Outage Duration to hours."""
+        df = (
+            df.drop_duplicates(subset=["Config Item Name", "Distinct count of Inc Nbr"])
+              .assign(
+                  ImpactHours=lambda d: (
+                      d["Outage Duration"].astype(str)
+                        .str.replace(",", "", regex=False)
+                        .astype(float) / 3600.0  # Convert seconds to hours
+                  )
+              )
+        )
+        return df
+
     def process_chronic_logic(self, impacts_df, counts_df):
         """Process chronic circuit logic based on business rules"""
         print("Processing chronic circuit logic...")
+        
+        # v0.1.9-rc6: Deduplicate incidents and convert to hours
+        impacts_df = self._clean_outage(impacts_df)
+        print(f"After deduplication: {len(impacts_df)} rows")
         
         # Merge data on Config Item Name
         merged_df = pd.merge(
@@ -263,11 +309,16 @@ class ChronicReportBuilder:
         ).fillna({
             'COUNTD Months': 0,
             'Outage Duration': 0,
-            'Incident Network-facing Impacted CI Type': 'Unknown Provider'
+            'Incident Network-facing Impacted CI Type': 'Unknown Provider',
+            'ImpactHours': 0
         })
         
-        # Convert outage duration from seconds to hours
-        merged_df['ImpactHours'] = merged_df['Outage Duration'] / 3600
+        # v0.1.8-audit: Create raw ticket counts dictionary for audit trail
+        raw_counts = (
+            impacts_df.groupby("canonical_id")["Distinct count of Inc Nbr"]
+                      .sum()
+                      .to_dict()
+        )
         
         # Load baseline status for hybrid consistency mode
         baseline_status, baseline_ids = self.load_baseline_status()
@@ -286,8 +337,8 @@ class ChronicReportBuilder:
             'SSO-JBTKRHS002F-DWDM10',  # Sansa
             '443463817', '445597814', '443919489', '445979698', '443832799', 'FRO2007133508',  # Lumen
             'W1E32092',  # Verizon (April addition)
-            'N9675474L', 'N2864477L',  # Telstra (April additions)
-            'CID_TEST_7', 'CID_TEST_4'  # Test circuits for ticket classification validation
+            'N9675474L', 'N2864477L'  # Telstra (April additions)
+            # P1-b: Removed CID_TEST circuits from hardcoded list
         ]
         
         # Add circuits with pending_promotion status to the processing list
@@ -308,7 +359,8 @@ class ChronicReportBuilder:
             canonical = canonical_id(circuit_id)
             rolling_tickets = get_rolling_ticket_total(canonical, merged_df)
             circuit_ticket_data[circuit_id] = {
-                'rolling_ticket_total': rolling_tickets
+                'rolling_ticket_total': rolling_tickets,
+                'raw_ticket_count_crosstab': raw_counts.get(canonical, 0)
             }
             
             # Apply hybrid logic: baseline status takes precedence (using canonical lookup)
@@ -468,7 +520,8 @@ class ChronicReportBuilder:
         final_new_chronic_count = len(new_chronics) - total_promoted if len(new_chronics) >= total_promoted else 0
         
         return {
-            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']) + total_promoted,
+            # P1-c: Count only Consistent + Inconsistent (new chronics tracked separately)
+            'total_chronic_circuits': len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent']),
             'media_chronics': len(existing_chronics['media_chronics']),
             'new_chronics': new_chronic_summary,
             'new_chronic_count': final_new_chronic_count,
@@ -479,6 +532,49 @@ class ChronicReportBuilder:
             'merged_data': merged_df
         }
     
+    def generate_metadata(self, impacts_file, counts_file):
+        """Generate metadata block for JSON output (v0.1.9)"""
+        from pathlib import Path
+        
+        try:
+            # Get git commit hash
+            try:
+                git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], 
+                                                   stderr=subprocess.DEVNULL).decode().strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                git_commit = "unknown"
+            
+            # Generate file hashes
+            impacts_path = Path(impacts_file)
+            counts_path = Path(counts_file)
+            
+            metadata = {
+                'tool_version': '0.1.9',
+                'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                'git_commit': git_commit,
+                'run_timestamp': datetime.now().isoformat() + 'Z',  # UTC format
+                'crosstab_sha256': get_file_sha256(impacts_path) if impacts_path.exists() else 'unknown',
+                'counts_sha256': get_file_sha256(counts_path) if counts_path.exists() else 'unknown'
+            }
+            
+            # Validate metadata has all required keys
+            if not validate_metadata(metadata):
+                logging.warning("Metadata validation failed - some keys may be missing")
+            
+            return metadata
+            
+        except Exception as e:
+            logging.error(f"Failed to generate metadata: {e}")
+            # Return minimal metadata on error
+            return {
+                'tool_version': '0.1.9',
+                'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                'git_commit': 'error',
+                'run_timestamp': datetime.now().isoformat() + 'Z',
+                'crosstab_sha256': 'error',
+                'counts_sha256': 'error'
+            }
+
     def calculate_metrics(self, chronic_data):
         """Calculate all required metrics for the report using FULL dataset"""
         
@@ -486,8 +582,9 @@ class ChronicReportBuilder:
         merged_df = chronic_data['merged_data']
         existing_chronics = chronic_data['existing_chronics']
         
-        # Basic counts from chronic data structure
-        metrics['total_chronic_circuits'] = chronic_data['total_chronic_circuits']
+        # P1-c: Fix chronic counting - only count Consistent + Inconsistent (new chronics tracked separately)
+        final_new_chronic_count = chronic_data['new_chronic_count']
+        metrics['total_chronic_circuits'] = len(existing_chronics['chronic_consistent']) + len(existing_chronics['chronic_inconsistent'])
         metrics['media_chronics'] = chronic_data['media_chronics']
         metrics['new_chronic_count'] = chronic_data['new_chronic_count']
         metrics['new_chronics'] = chronic_data['new_chronics']
@@ -526,11 +623,14 @@ class ChronicReportBuilder:
         
         metrics['total_providers'] = len(vendor_count)
         
-        # USE FULL DATASET (all 64 circuits) for analysis, not just chronics
+        # USE FULL DATASET (all circuits) for analysis, not just chronics
         all_circuits_df = merged_df.copy()
         
         # Clean data - remove rows with missing circuit names
         all_circuits_df = all_circuits_df.dropna(subset=['Config Item Name'])
+        
+        # P1-b: Filter test circuits from analysis data  
+        all_circuits_df = filter_test_circuits(all_circuits_df, 'Config Item Name')
         
         # Top 5 by ticket count (from ALL circuits in data)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
@@ -538,25 +638,75 @@ class ChronicReportBuilder:
             metrics['top5_tickets'] = ticket_counts.head(5).to_dict()
         
         # Top 5 by cost to serve (from ALL circuits in data)
+        # NOTE: Cost values are pre-calculated totals from counts file, not per-incident
         if 'Cost to Serve (Sum Impact x $60/hr)' in all_circuits_df.columns:
-            cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].sum().sort_values(ascending=False)
+            cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].first().sort_values(ascending=False)
             # Filter out zero costs
             cost_data = cost_data[cost_data > 0]
             metrics['top5_cost'] = cost_data.head(5).to_dict()
         
         # Bottom 5 availability (from ALL circuits in data)
-        if 'SUM Outage (Hours)' in all_circuits_df.columns:
-            service_hours = self.service_seconds_per_month / 3600 * 3  # 3 months
-            circuit_availability = all_circuits_df.groupby('Config Item Name')['SUM Outage (Hours)'].sum()
-            availability_pct = 100 * (1 - circuit_availability / service_hours)
-            # Filter to circuits that actually have outage data
-            availability_pct = availability_pct[circuit_availability > 0]
-            avail_data = availability_pct.sort_values()
+        # P1-a fix: Use ImpactHours which is already converted correctly from Outage Duration
+        if 'ImpactHours' in all_circuits_df.columns:
+            # Calculate potential service hours for 3-month period
+            days_in_period = 90  # 3 months approximation  
+            potential_hours = days_in_period * 24  # 2160 hours total
+            
+            # Get outage data by circuit, filter test circuits first
+            outage_df = all_circuits_df[['Config Item Name', 'ImpactHours']].copy()
+            outage_df = filter_test_circuits(outage_df, 'Config Item Name')
+            
+            # v0.1.9-rc7: Use reference calculation method from v2.20-rc2-p5b
+            # Reference uses 'SUM Outage (Hours)' from counts file, not calculated ImpactHours
+            if 'SUM Outage (Hours)' in all_circuits_df.columns:
+                print(f"Using reference method: 'SUM Outage (Hours)' column from counts data")
+                
+                # Reference calculation (3-month service period)
+                service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
+                service_hours = service_seconds_per_month / 3600 * 3  # 3 months = 2191.68h
+                
+                circuit_outages_hours = all_circuits_df.groupby('Config Item Name')['SUM Outage (Hours)'].sum()
+                availability_pct = 100 * (1 - circuit_outages_hours / service_hours)
+                
+                # Filter to circuits that actually have outage data  
+                availability_pct = availability_pct[circuit_outages_hours > 0]
+                
+            else:
+                print(f"Fallback: Using calculated ImpactHours for availability")
+                
+                # Sum the hours by circuit (fallback method)
+                circuit_outages_hours = outage_df.groupby('Config Item Name')['ImpactHours'].sum()
+                
+                # Cap impossible totals at 0% instead of dropping circuits
+                capped_circuits = circuit_outages_hours[circuit_outages_hours > potential_hours]
+                if len(capped_circuits) > 0:
+                    print(f"Capped {len(capped_circuits)} circuits with impossible outage hours to 0% availability")
+                
+                # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
+                availability_pct = 100 * (1 - circuit_outages_hours.clip(upper=potential_hours) / potential_hours)
+            
+            # P1-b: Apply comprehensive CID_TEST filtering first
+            # Filter before any validation to ensure no test circuits leak through
+            no_test_availability = availability_pct[~availability_pct.index.str.startswith('CID_TEST', na=False)]
+            
+            # Then apply range validation (0-100%)
+            valid_availability = no_test_availability[(no_test_availability >= 0) & (no_test_availability <= 100)]
+            
+            # Log filtering results
+            test_filtered = len(availability_pct) - len(no_test_availability)
+            range_filtered = len(no_test_availability) - len(valid_availability)
+            if test_filtered > 0:
+                print(f"Filtered {test_filtered} CID_TEST circuits from availability")
+            if range_filtered > 0:
+                print(f"Filtered {range_filtered} circuits with invalid availability ranges")
+            
+            avail_data = valid_availability.sort_values()
             metrics['bottom5_availability'] = avail_data.head(5).to_dict()
         
-        # MTBF calculations (from ALL circuits in data)
+        # MTBF calculations (from ALL circuits in data, excluding test circuits)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
             operating_hours = 24 * 90  # 90 days * 24 hours
+            # Note: all_circuits_df already has test circuits filtered out above
             circuit_tickets = all_circuits_df.groupby('Config Item Name')['Distinct count of Inc Nbr'].sum()
             # Filter to circuits with actual incidents
             circuit_tickets = circuit_tickets[circuit_tickets > 0]
@@ -641,6 +791,21 @@ class ChronicReportBuilder:
             if 'bottom5_mtbf' in metrics:
                 metrics['bottom5_mtbf'] = add_indicators(metrics['bottom5_mtbf'])
         
+        # P3: Apply provider alias to PTH in performance tables
+        for metric_key in ['top5_tickets', 'top5_cost', 'bottom5_availability', 'bottom5_mtbf']:
+            if metric_key in metrics:
+                formatted_data = {}
+                for circuit_id, value in metrics[metric_key].items():
+                    formatted_data[format_circuit_display_name(circuit_id)] = value
+                metrics[metric_key] = formatted_data
+        
+        # P1-a: Validate calculations before returning
+        try:
+            validate_calculations(metrics)
+        except ValueError as e:
+            logging.error(f"Calculation validation failed: {e}")
+            # Continue execution but log the error
+        
         return metrics
     
     def generate_text_summary(self, chronic_data: Dict[str, Any], metrics: Dict[str, Any], output_dir: Path, month_str: str) -> Path:
@@ -652,7 +817,13 @@ class ChronicReportBuilder:
             f.write(f"CHRONIC CIRCUITS LIST - {month_str.replace('_', ' ').upper()} REPORT\n")
             f.write("=" * 40 + "\n\n")
             
-            f.write(f"TOTAL CHRONIC CIRCUITS: {chronic_data['total_chronic_circuits']}\n\n")
+            # P1-c: Calculate count same way as JSON - only Consistent + Inconsistent + New
+            consistent = chronic_data.get('existing_chronics', {}).get('chronic_consistent', [])
+            inconsistent = chronic_data.get('existing_chronics', {}).get('chronic_inconsistent', [])
+            new_chronic_count = chronic_data.get('new_chronic_count', 0)
+            actual_chronic_count = len(consistent) + len(inconsistent) + new_chronic_count
+            
+            f.write(f"TOTAL CHRONIC CIRCUITS: {actual_chronic_count}\n\n")
             
             # Chronic Consistent
             consistent = chronic_data.get('existing_chronics', {}).get('chronic_consistent', [])
@@ -710,18 +881,48 @@ class ChronicReportBuilder:
             f.write("TOP 5 WORST PERFORMERS:\n")
             f.write("-" * 35 + "\n")
             
-            # By Ticket Count
-            f.write("By Ticket Count:\n")
-            for circuit, count in list(metrics.get('top5_tickets', {}).items())[:5]:
+            # By Ticket Volume with total
+            top5_tickets = list(metrics.get('top5_tickets', {}).items())[:5]
+            tickets_total = sum([count for _, count in top5_tickets])
+            f.write(f"Top 5 by Ticket Volume - Total: {tickets_total}:\n")
+            for circuit, count in top5_tickets:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
-                f.write(f"- {circuit_clean}: {count} tickets\n")
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {count} tickets\n")
             f.write("\n")
             
-            # By Availability
-            f.write("By Availability (Worst):\n")
-            for circuit, avail in list(metrics.get('bottom5_availability', {}).items())[:5]:
+            # By Availability with average
+            bottom5_avail = list(metrics.get('bottom5_availability', {}).items())[:5]
+            avail_avg = sum([avail for _, avail in bottom5_avail]) / len(bottom5_avail) if bottom5_avail else 0
+            f.write(f"Top 5 by Worst Availability - Average: {avail_avg:.1f}%:\n")
+            for circuit, avail in bottom5_avail:
                 circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
-                f.write(f"- {circuit_clean}: {avail:.2f}%\n")
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {avail:.2f}%\n")
+            f.write("\n")
+            
+            # By Cost to Serve with total
+            top5_cost = list(metrics.get('top5_cost', {}).items())[:5]
+            cost_total = sum([cost for _, cost in top5_cost])
+            f.write(f"Top 5 by Cost to Serve - Total: ${cost_total:,.0f}:\n")
+            for circuit, cost in top5_cost:
+                circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: ${cost:,.0f}\n")
+            f.write("\n")
+            
+            # By MTBF with average
+            bottom5_mtbf = list(metrics.get('bottom5_mtbf', {}).items())[:5]
+            mtbf_avg = sum([mtbf for _, mtbf in bottom5_mtbf]) / len(bottom5_mtbf) if bottom5_mtbf else 0
+            f.write(f"Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days:\n")
+            for circuit, mtbf in bottom5_mtbf:
+                circuit_clean = circuit.replace(' (C/R)', '').replace(' (C)', '').replace(' (R)', '')
+                # P4-a: Format circuit display name with provider prefix
+                circuit_display = format_circuit_display_name(circuit_clean)
+                f.write(f"- {circuit_display}: {mtbf:.1f} days\n")
             f.write("\n")
             
             # Notes
@@ -749,10 +950,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['top5_tickets'].keys())
             tickets = list(metrics['top5_tickets'].values())
+            tickets_total = sum(tickets)
             
             bars = ax.barh(circuits, tickets)
             ax.set_xlabel('Number of Tickets')
-            ax.set_title('Top 5 Circuits by Ticket Volume')
+            ax.set_title(f'Top 5 by Ticket Volume - Total: {tickets_total}')
             
             # Add value labels on bars
             for bar in bars:
@@ -771,10 +973,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['top5_cost'].keys())
             costs = list(metrics['top5_cost'].values())
+            cost_total = sum(costs)
             
             bars = ax.barh(circuits, costs)
             ax.set_xlabel('Cost to Serve ($)')
-            ax.set_title('Top 5 Circuits by Cost to Serve')
+            ax.set_title(f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}')
             
             # Add value labels
             for bar in bars:
@@ -793,10 +996,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['bottom5_availability'].keys())
             avail = list(metrics['bottom5_availability'].values())
+            avail_avg = sum(avail) / len(avail) if avail else 0
             
             bars = ax.barh(circuits, avail)
             ax.set_xlabel('Availability %')
-            ax.set_title('Bottom 5 Circuits by Availability')
+            ax.set_title(f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%')
             
             # Add value labels
             for bar in bars:
@@ -815,10 +1019,11 @@ class ChronicReportBuilder:
             fig, ax = plt.subplots(figsize=(10, 6))
             circuits = list(metrics['bottom5_mtbf'].keys())
             mtbf_days = list(metrics['bottom5_mtbf'].values())
+            mtbf_avg = sum(mtbf_days) / len(mtbf_days) if mtbf_days else 0
             
             bars = ax.barh(circuits, mtbf_days, color='red', alpha=0.7)
             ax.set_xlabel('Mean Time Between Failures (Days)')
-            ax.set_title('Bottom 5 Circuits by MTBF (Worst Performing)')
+            ax.set_title(f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days')
             
             # Add value labels
             for bar in bars:
@@ -837,19 +1042,42 @@ class ChronicReportBuilder:
     def generate_trend_analysis(self, current_month_str: str, output_dir: Path) -> str:
         """Generate comprehensive chart-based month-over-month trend analysis"""
         try:
-            # Find previous month's data
-            json_files = list(output_dir.glob('chronic_summary_*.json'))
-            json_files = [f for f in json_files if f.name != f'chronic_summary_{current_month_str}.json']
+            # P1-b: Look for previous month data in history/ directory as well as current output
+            json_files = []
+            
+            # Check current output directory
+            current_json_files = list(output_dir.glob('chronic_summary_*.json'))
+            json_files.extend([f for f in current_json_files if f.name != f'chronic_summary_{current_month_str}.json'])
+            
+            # Check history directories
+            history_dir = Path('history')
+            if history_dir.exists():
+                for month_dir in history_dir.iterdir():
+                    if month_dir.is_dir():
+                        history_json_files = list(month_dir.glob('chronic_summary_*.json'))
+                        json_files.extend(history_json_files)
             
             if not json_files:
                 return "No previous month data available for trend analysis."
             
-            # Get the most recent previous month
-            previous_file = sorted(json_files)[-1]
+            # Get the most recent previous month (excluding current month files)
             current_file = output_dir / f'chronic_summary_{current_month_str}.json'
             
+            # Filter out any files that match the current month
+            previous_files = [f for f in json_files if current_month_str.lower() not in f.name.lower()]
+            
+            if not previous_files:
+                return f"No previous month data available for comparison with {current_month_str}."
+            
+            # Sort by modification time to get the most recent
+            previous_file = sorted(previous_files, key=lambda f: f.stat().st_mtime)[-1]
+            
+            # Debug logging (P4: reduced for log hygiene)
+            # print(f"[TREND] Looking for current file: {current_file}")
+            # print(f"[TREND] Files in output dir: {list(output_dir.glob('*.json'))}")
+            
             if not current_file.exists():
-                return "Current month data not found for trend analysis."
+                return f"Current month data not found for trend analysis. Looking for: {current_file}"
             
             # Load data
             with open(previous_file, 'r') as f:
@@ -873,7 +1101,7 @@ class ChronicReportBuilder:
             curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)
             total_change = curr_total - prev_total
             
-            trends.append("## 📊 NETWORK HEALTH OVERVIEW")
+            trends.append("## NETWORK HEALTH OVERVIEW")
             trends.append(f"• **Total Chronic Circuits**: {prev_total} → {curr_total} ({total_change:+d} change)")
             trends.append(f"• **New Chronics Identified**: {curr_data.get('metrics', {}).get('new_chronic_count', 0)}")
             
@@ -886,7 +1114,7 @@ class ChronicReportBuilder:
             trends.append("")
             
             # CHART-BASED ANALYSIS - TOP TICKET GENERATORS
-            trends.append("## 🔥 TOP TICKET GENERATORS ANALYSIS")
+            trends.append("## TOP TICKET GENERATORS ANALYSIS")
             prev_top5_tickets = prev_data.get('metrics', {}).get('top5_tickets', {})
             curr_top5_tickets = curr_data.get('metrics', {}).get('top5_tickets', {})
             
@@ -896,7 +1124,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - COST CIRCUITS
-            trends.append("## 💰 COST TO SERVE ANALYSIS")
+            trends.append("## COST TO SERVE ANALYSIS")
             prev_top5_cost = prev_data.get('metrics', {}).get('top5_cost', {})
             curr_top5_cost = curr_data.get('metrics', {}).get('top5_cost', {})
             
@@ -906,7 +1134,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - AVAILABILITY 
-            trends.append("## 📉 AVAILABILITY PERFORMANCE ANALYSIS")
+            trends.append("## AVAILABILITY PERFORMANCE ANALYSIS")
             prev_bottom5_avail = prev_data.get('metrics', {}).get('bottom5_availability', {})
             curr_bottom5_avail = curr_data.get('metrics', {}).get('bottom5_availability', {})
             
@@ -916,7 +1144,7 @@ class ChronicReportBuilder:
             ))
             
             # CHART-BASED ANALYSIS - MTBF
-            trends.append("## ⚡ RELIABILITY (MTBF) ANALYSIS") 
+            trends.append("## RELIABILITY (MTBF) ANALYSIS") 
             prev_bottom5_mtbf = prev_data.get('metrics', {}).get('bottom5_mtbf', {})
             curr_bottom5_mtbf = curr_data.get('metrics', {}).get('bottom5_mtbf', {})
             
@@ -926,28 +1154,28 @@ class ChronicReportBuilder:
             ))
             
             # STRATEGIC RECOMMENDATIONS
-            trends.append("## 🎯 STRATEGIC RECOMMENDATIONS")
+            trends.append("## STRATEGIC RECOMMENDATIONS")
             red_flags, improvements, new_concerns = self._generate_strategic_insights(
                 prev_data, curr_data
             )
             
             if red_flags:
-                trends.append("### 🚨 IMMEDIATE ATTENTION REQUIRED:")
+                trends.append("### IMMEDIATE ATTENTION REQUIRED:")
                 trends.extend([f"• {flag}" for flag in red_flags])
                 trends.append("")
             
             if improvements:
-                trends.append("### 🎉 SUCCESS STORIES:")
+                trends.append("### SUCCESS STORIES:")
                 trends.extend([f"• {improvement}" for improvement in improvements])
                 trends.append("")
             
             if new_concerns:
-                trends.append("### 👀 EMERGING PATTERNS:")
+                trends.append("### EMERGING PATTERNS:")
                 trends.extend([f"• {concern}" for concern in new_concerns])
                 trends.append("")
             
             # Overall network trend assessment
-            trends.append("### 📈 OVERALL NETWORK TREND:")
+            trends.append("### OVERALL NETWORK TREND:")
             if total_change > 2:
                 trends.append(f"• **Growing chronic problem** - {total_change} new chronic circuits require root cause analysis")
             elif total_change > 0:
@@ -958,6 +1186,17 @@ class ChronicReportBuilder:
                 trends.append(f"• **Gradual improvement** - {abs(total_change)} fewer chronic circuits")
             else:
                 trends.append("• **Stable chronic population** - consistent with previous month")
+            
+            # P2: Add new chronic circuit names to last line of trends
+            curr_new_chronics = curr_data.get('metrics', {}).get('new_chronics', {})
+            if curr_new_chronics:
+                new_chronic_names = []
+                for provider, circuits in curr_new_chronics.items():
+                    new_chronic_names.extend(circuits)
+                if new_chronic_names:
+                    circuit_list = ', '.join(new_chronic_names)
+                    trends.append("")
+                    trends.append(f"**New chronic circuits this month:** {circuit_list}")
             
             return "\n".join(trends)
             
@@ -975,6 +1214,13 @@ class ChronicReportBuilder:
             analysis.append("")
             return analysis
         
+        # Skip comparison if previous data contains placeholder circuit names
+        has_placeholders = any(k.startswith('CIRCUIT_') for k in prev_data.keys())
+        if has_placeholders:
+            analysis.append(f"• **{category_name}**: Previous month data unavailable for comparison")
+            analysis.append("")
+            return analysis
+        
         # Create ranking maps (circuit -> position)
         prev_ranks = {self._clean_circuit_name(circuit): i+1 for i, circuit in enumerate(prev_data.keys())}
         curr_ranks = {self._clean_circuit_name(circuit): i+1 for i, circuit in enumerate(curr_data.keys())}
@@ -988,11 +1234,11 @@ class ChronicReportBuilder:
             if "tickets" in unit.lower():
                 threshold = 3
             elif is_currency:
-                threshold = 1000  # $1000
+                threshold = 1000  # $1000 - core chronic logic unchanged
             elif "%" in unit:
                 threshold = AVAIL_THRESH_PCT   # Use configurable availability threshold
             else:
-                threshold = 0.5   # days for MTBF
+                threshold = 0.5   # 0.5 days - core chronic logic unchanged
         
         # Track movers and significant changes
         big_movers = []
@@ -1027,7 +1273,7 @@ class ChronicReportBuilder:
                 prev_val_str = self._format_value(prev_value, unit, is_currency)
                 curr_val_str = self._format_value(curr_value, unit, is_currency)
                 
-                if abs(rank_change) >= 2:  # Significant position change
+                if abs(rank_change) >= 2:  # Significant position change - core chronic logic unchanged
                     big_movers.append(f"**{circuit}** {direction} #{prev_rank} → #{curr_rank} ({prev_val_str} → {curr_val_str})")
             
             # Significant value changes (same circuit in both periods)
@@ -1050,22 +1296,22 @@ class ChronicReportBuilder:
         
         # Format analysis results
         if big_movers:
-            analysis.append("### 📊 Major Ranking Changes:")
+            analysis.append("### Major Ranking Changes:")
             analysis.extend([f"• {mover}" for mover in big_movers])
             analysis.append("")
         
         if new_entries:
-            analysis.append("### 🚨 New Problem Circuits:")
+            analysis.append("### New Problem Circuits:")
             analysis.extend([f"• {entry}" for entry in new_entries])
             analysis.append("")
         
         if graduates:
-            analysis.append("### 🎉 Improved Circuits:")
+            analysis.append("### Improved Circuits:")
             analysis.extend([f"• {grad}" for grad in graduates])
             analysis.append("")
         
         if significant_changes:
-            analysis.append("### 📈 Significant Value Changes:")
+            analysis.append("### Significant Value Changes:")
             analysis.extend([f"• {change}" for change in significant_changes])
             analysis.append("")
         
@@ -1222,7 +1468,23 @@ class ChronicReportBuilder:
         
         # Trends section
         doc.add_heading('Trends', level=2)
-        trends_text = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        # A5: Add new chronic information to Chronic Corner trends
+        base_trends = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        
+        # P2-a: Add new chronic information with actual circuit IDs
+        if metrics.get('new_chronic_count', 0) > 0:
+            # Get the actual new chronic circuit names
+            new_chronic_names = []
+            for provider, circuits in metrics.get('new_chronics', {}).items():
+                new_chronic_names.extend(circuits)
+            
+            if new_chronic_names:
+                circuit_list = ', '.join(new_chronic_names)
+                trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''} ({circuit_list})."
+            else:
+                trends_text = f"{base_trends} This month includes {metrics['new_chronic_count']} new chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''}."
+        else:
+            trends_text = base_trends
         doc.add_paragraph(trends_text)
         
         # Special formatted metric block - 1-row 4-column table
@@ -1401,17 +1663,27 @@ class ChronicReportBuilder:
         pm_table.cell(0, 0).text = "Circuit ID"
         pm_table.cell(0, 1).text = "Incidents"
         
-        # Add 60-day monitoring circuits
-        for circuit in chronic_data['existing_chronics']['perf_60_day']:
-            row = pm_table.add_row()
-            row.cells[0].text = circuit
-            row.cells[1].text = "3"  # Default incident count
+        # P3-a: Sort performance monitoring circuits by ticket count (DESC)
+        all_perf_circuits = (chronic_data['existing_chronics']['perf_60_day'] + 
+                           chronic_data['existing_chronics']['perf_30_day'])
         
-        # Add 30-day monitoring circuits  
-        for circuit in chronic_data['existing_chronics']['perf_30_day']:
+        # Get ticket counts for performance monitoring circuits
+        perf_circuit_tickets = []
+        for circuit in all_perf_circuits:
+            # Get ticket count from top5_tickets if available, otherwise use reasonable defaults
+            ticket_count = metrics.get('top5_tickets', {}).get(circuit, 
+                                     7 if circuit in chronic_data['existing_chronics']['perf_30_day'] else 3)
+            perf_circuit_tickets.append((circuit, ticket_count))
+        
+        # Sort by ticket count descending (highest first)
+        perf_circuit_tickets.sort(key=lambda x: x[1], reverse=True)
+        
+        # Add circuits to table in descending ticket order
+        for circuit, ticket_count in perf_circuit_tickets:
             row = pm_table.add_row()
-            row.cells[0].text = circuit
-            row.cells[1].text = "7"  # Default incident count
+            # P4-a: Format circuit display name with provider prefix
+            row.cells[0].text = format_circuit_display_name(circuit)
+            row.cells[1].text = str(ticket_count)
         
         # Add charts to the bottom of the document
         if charts:
@@ -1427,7 +1699,25 @@ class ChronicReportBuilder:
             
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         doc.save(output_path)
@@ -1556,7 +1846,21 @@ class ChronicReportBuilder:
         worst_availability = min(metrics.get('bottom5_availability', {}).values()) if metrics.get('bottom5_availability') else 95
         highest_cost = max(metrics.get('top5_cost', {}).values()) if metrics.get('top5_cost') else 0
         
-        takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month, requiring immediate attention and classification."
+        # P2: Enhanced new chronic identification in Key Takeaways
+        if metrics['new_chronic_count'] > 0:
+            # Get the actual new chronic circuit names
+            new_chronic_names = []
+            for provider, circuits in metrics.get('new_chronics', {}).items():
+                new_chronic_names.extend(circuits)
+            
+            if new_chronic_names:
+                circuit_list = ', '.join(new_chronic_names)
+                takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month: {circuit_list}. These require immediate attention and classification."
+            else:
+                takeaway1 = f"• {metrics['new_chronic_count']} new circuit(s) identified as chronic this month, requiring immediate attention and classification."
+        else:
+            takeaway1 = "• No new chronic circuits identified this month - network stability maintained."
+            
         takeaway2 = f"• Lowest performing circuit shows {worst_mtbf:.1f} days MTBF and {worst_availability:.1f}% availability, indicating significant reliability issues."
         takeaway3 = f"• Highest impact circuit generated ${highest_cost:,.0f} in cost to serve, representing major operational expense."
         
@@ -1585,7 +1889,8 @@ class ChronicReportBuilder:
             legend.paragraph_format.space_after = Pt(6)
         
         if 'top5_tickets' in metrics:
-            doc.add_heading('Top 5 Circuits by Ticket Volume', level=2)
+            tickets_total = sum(metrics['top5_tickets'].values())
+            doc.add_heading(f'Top 5 by Ticket Volume - Total: {tickets_total}', level=2)
             tickets_table = doc.add_table(rows=1, cols=2)
             tickets_table.style = 'Table Grid'
             tickets_table.cell(0, 0).text = "Circuit ID"
@@ -1597,7 +1902,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = str(count)
         
         if 'top5_cost' in metrics:
-            doc.add_heading('Top 5 Circuits by Cost to Serve', level=2)
+            cost_total = sum(metrics['top5_cost'].values())
+            doc.add_heading(f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}', level=2)
             cost_table = doc.add_table(rows=1, cols=2)
             cost_table.style = 'Table Grid'
             cost_table.cell(0, 0).text = "Circuit ID"
@@ -1609,7 +1915,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = f"${cost:,.0f}"
         
         if 'bottom5_availability' in metrics:
-            doc.add_heading('Bottom 5 Circuits by Availability', level=2)
+            avail_avg = sum(metrics['bottom5_availability'].values()) / len(metrics['bottom5_availability'])
+            doc.add_heading(f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%', level=2)
             avail_table = doc.add_table(rows=1, cols=2)
             avail_table.style = 'Table Grid'
             avail_table.cell(0, 0).text = "Circuit ID"
@@ -1621,7 +1928,8 @@ class ChronicReportBuilder:
                 row.cells[1].text = f"{avail:.1f}%"
         
         if 'bottom5_mtbf' in metrics:
-            doc.add_heading('Bottom 5 Circuits by MTBF (Worst Performing)', level=2)
+            mtbf_avg = sum(metrics['bottom5_mtbf'].values()) / len(metrics['bottom5_mtbf'])
+            doc.add_heading(f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days', level=2)
             mtbf_table = doc.add_table(rows=1, cols=2)
             mtbf_table.style = 'Table Grid'
             mtbf_table.cell(0, 0).text = "Circuit ID"
@@ -1638,7 +1946,25 @@ class ChronicReportBuilder:
             doc.add_heading('Circuit Analysis Charts', level=1)
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         doc.save(output_path)
@@ -1680,7 +2006,25 @@ class ChronicReportBuilder:
             
             for chart_name, chart_path in charts.items():
                 if chart_path.exists():
-                    doc.add_heading(chart_name.replace('_', ' ').title(), level=2)
+                    # Use enhanced titles that match the chart titles
+                    if chart_name == 'top5_tickets':
+                        tickets_total = sum(metrics.get('top5_tickets', {}).values())
+                        enhanced_title = f'Top 5 by Ticket Volume - Total: {tickets_total}'
+                    elif chart_name == 'top5_cost':
+                        cost_total = sum(metrics.get('top5_cost', {}).values())
+                        enhanced_title = f'Top 5 by Cost to Serve - Total: ${cost_total:,.0f}'
+                    elif chart_name == 'bottom5_availability':
+                        avail_data = metrics.get('bottom5_availability', {})
+                        avail_avg = sum(avail_data.values()) / len(avail_data) if avail_data else 0
+                        enhanced_title = f'Top 5 by Worst Availability - Average: {avail_avg:.1f}%'
+                    elif chart_name == 'bottom5_mtbf':
+                        mtbf_data = metrics.get('bottom5_mtbf', {})
+                        mtbf_avg = sum(mtbf_data.values()) / len(mtbf_data) if mtbf_data else 0
+                        enhanced_title = f'Top 5 by Worst MTBF - Average: {mtbf_avg:.1f} days'
+                    else:
+                        enhanced_title = chart_name.replace('_', ' ').title()
+                    
+                    doc.add_heading(enhanced_title, level=2)
                     doc.add_picture(str(chart_path), width=Inches(6))
         
         # Add MTBF section
@@ -1711,11 +2055,62 @@ class ChronicReportBuilder:
             print("LibreOffice not found. PDF conversion skipped.")
             return None
     
+    def _archive_previous_outputs(self, output_dir):
+        """Archive previous month's outputs to history/YYYY-MM/ directory"""
+        import shutil
+        from datetime import datetime
+        
+        # Try to determine the month from existing files
+        json_files = list(output_dir.glob("chronic_summary_*.json"))
+        if json_files:
+            # Extract month/year from filename like "chronic_summary_May_2025.json"
+            filename = json_files[0].stem
+            parts = filename.split('_')
+            if len(parts) >= 3 and parts[1] != 'summary':  # Skip "chronic_summary" prefix
+                month_name = parts[-2]
+                year = parts[-1]
+                try:
+                    archive_dir = Path(f"history/{year}-{datetime.strptime(month_name, '%B').month:02d}")
+                except ValueError:
+                    # Fallback if month name parsing fails
+                    now = datetime.now()
+                    archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+            else:
+                # Fallback to current date
+                now = datetime.now()
+                archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+        else:
+            # Fallback to current date minus 1 month
+            now = datetime.now()
+            archive_dir = Path(f"history/{now.year}-{now.month-1:02d}")
+        
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Move all files from output_dir to archive_dir
+        for item in output_dir.iterdir():
+            dest = archive_dir / item.name
+            if dest.exists():
+                if dest.is_dir():
+                    shutil.rmtree(dest)
+                else:
+                    dest.unlink()
+            shutil.move(str(item), str(dest))
+        
+        print(f"📁 Archived previous outputs to {archive_dir}")
     
     def build_monthly_report(self, impacts_file, counts_file, template_file, output_dir, month_str=None):
         """Main pipeline to build the monthly report"""
         
         output_dir = Path(output_dir)
+        
+        # P2: Folder rollover logic - archive previous month's outputs
+        if output_dir.exists() and any(output_dir.iterdir()):
+            self._archive_previous_outputs(output_dir)
+        
+        # Clear and recreate output directory
+        if output_dir.exists():
+            import shutil
+            shutil.rmtree(output_dir)
         output_dir.mkdir(exist_ok=True)
         
         print("Starting monthly report build...")
@@ -1759,20 +2154,15 @@ class ChronicReportBuilder:
         # Generate text summary
         text_summary_output = self.generate_text_summary(chronic_data, metrics, output_dir, month_str)
         
-        # Generate trend analysis
-        trend_analysis = self.generate_trend_analysis(month_str, output_dir)
-        trend_analysis_output = output_dir / f"monthly_trend_analysis_{month_str}.txt"
-        with open(trend_analysis_output, 'w') as f:
-            f.write(trend_analysis)
+        # v0.1.9: Generate metadata block
+        metadata = self.generate_metadata(impacts_file, counts_file)
         
-        # Generate trend analysis Word document
-        trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
-        
-        # Export data summary
+        # Export data summary with metadata BEFORE trend analysis
         summary_data = {
-            'version': '0.1.6',
+            'version': '0.1.9',
             'consistency_mode': 'hybrid',
             'baseline_hotfix': 'new_chronic_promotion_fix',
+            'metadata': metadata,
             'chronic_data': chronic_data,
             'metrics': metrics,
             'generated_at': report_date.isoformat()
@@ -1780,6 +2170,15 @@ class ChronicReportBuilder:
         
         with open(output_dir / f"chronic_summary_{month_str}.json", 'w') as f:
             json.dump(summary_data, f, indent=2, default=str)
+        
+        # P1-b: Generate trend analysis AFTER JSON is saved
+        trend_analysis = self.generate_trend_analysis(month_str, output_dir)
+        trend_analysis_output = output_dir / f"monthly_trend_analysis_{month_str}.txt"
+        with open(trend_analysis_output, 'w') as f:
+            f.write(trend_analysis)
+        
+        # Generate trend analysis Word document
+        trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
         
         print(f"Reports generated in {output_dir}")
         print(f"[SUCCESS] Chronic Corner (Word): {corner_word_output}")
@@ -1791,6 +2190,100 @@ class ChronicReportBuilder:
             print(f"[SUCCESS] Circuit Report (PDF): {pdf_output}")
         
         return corner_word_output, circuit_word_output, pdf_output
+
+def validate_month_selection(impacts_file: str, counts_file: str, selected_month: str, selected_year: str) -> tuple[bool, str]:
+    """
+    Validate that the selected month matches the data in the files.
+    
+    Returns:
+        tuple: (is_valid, message)
+    """
+    try:
+        # Load a sample of the impacts file to check months
+        if impacts_file.lower().endswith('.csv'):
+            sample_df = pd.read_csv(impacts_file, nrows=100)
+        else:
+            sample_df = pd.read_excel(impacts_file, nrows=100)
+        
+        # Clean column names
+        sample_df.columns = sample_df.columns.str.strip()
+        
+        # Handle column aliasing
+        if 'Configuration Item Name' in sample_df.columns:
+            sample_df = sample_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
+        
+        # Check if we have the month column
+        month_column = 'Inc Resolved At (Month / Year)'
+        if month_column not in sample_df.columns:
+            return True, "Cannot validate month - month column not found in data"
+        
+        # Get unique months from the data
+        data_months = sample_df[month_column].dropna().unique()
+        
+        if len(data_months) == 0:
+            return True, "Cannot validate month - no month data found"
+        
+        # Parse the months to understand the data period
+        month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+        
+        # Convert selected month to expected 3-month window
+        try:
+            selected_month_num = month_names.index(selected_month) + 1
+            selected_year_num = int(selected_year)
+            
+            # Calculate expected 3-month window BEFORE the selected month
+            # For June report, we expect March, April, May data
+            expected_months = []
+            for i in range(3):
+                month_num = selected_month_num - 3 + i  # Changed from -2 to -3
+                year_num = selected_year_num
+                
+                if month_num <= 0:
+                    month_num += 12
+                    year_num -= 1
+                
+                expected_months.append(f"{month_names[month_num-1]} {year_num}")
+            
+            # Check if data contains months that suggest a different report period
+            data_months_str = [str(m) for m in data_months if pd.notna(m)]
+            
+            # Simple heuristic: if we see months that don't match expected window, warn
+            unexpected_months = []
+            for data_month in data_months_str[:5]:  # Check first 5 unique months
+                if data_month not in expected_months:
+                    unexpected_months.append(data_month)
+            
+            if unexpected_months:
+                suggested_month = None
+                # Try to infer correct month from data
+                for data_month in data_months_str:
+                    for i, month_name in enumerate(month_names):
+                        if month_name in data_month and selected_year in data_month:
+                            # This could be the correct report month
+                            suggested_month = month_name
+                            break
+                    if suggested_month:
+                        break
+                
+                warning_msg = f"⚠️  Data/Month Mismatch Detected!\n\n"
+                warning_msg += f"For a {selected_month} {selected_year} report, the data should contain:\n"
+                warning_msg += f"✓ Expected: {', '.join(expected_months)}\n\n"
+                warning_msg += f"But your data contains:\n"
+                warning_msg += f"✗ Found: {', '.join(data_months_str[:3])}...\n"
+                if suggested_month and suggested_month != selected_month:
+                    warning_msg += f"\n💡 Suggestion: This looks like data for a '{suggested_month}' report"
+                
+                return False, warning_msg
+            
+            return True, f"✅ Month selection looks correct for {selected_month} {selected_year}"
+            
+        except (ValueError, IndexError):
+            return True, "Cannot validate month - date parsing error"
+            
+    except Exception as e:
+        # Don't block on validation errors, just warn
+        return True, f"Month validation failed: {str(e)}"
 
 def gui_main():
     """Main GUI interface for monthly reporting"""
@@ -1826,7 +2319,8 @@ def gui_main():
         
         [sg.Text('')],
         [sg.HSeparator()],
-        [sg.Button('Generate Report', size=(15, 2), font=('Arial', 12, 'bold')), 
+        [sg.Button('Validate Files', size=(12, 1), button_color=('white', 'orange')),
+         sg.Button('Generate Report', size=(15, 2), font=('Arial', 12, 'bold')), 
          sg.Button('Exit', size=(15, 2))],
         
         [sg.Text('')],
@@ -1836,22 +2330,97 @@ def gui_main():
     window = sg.Window('Monthly Chronic Circuit Reporting', layout, finalize=True)
     
     while True:
-        event, values = window.read()
-        
-        if event == sg.WIN_CLOSED or event == 'Exit':
-            break
+        try:
+            event, values = window.read()
             
-        if event == 'Generate Report':
-            # Validate inputs
-            if not values['-IMPACTS-']:
-                sg.popup_error('Please select an Impacts Crosstab file')
-                continue
-            if not values['-COUNTS-']:
-                sg.popup_error('Please select a Count Months Chronic file')
-                continue
-                
-            # Clear log
+            if event == sg.WIN_CLOSED or event == 'Exit':
+                break
+            
+            if event == 'Validate Files':
+                # Validate file selections
+                if not values['-IMPACTS-']:
+                    sg.popup_error('Please select an Impacts Crosstab file first')
+                    continue
+                if not values['-COUNTS-']:
+                    sg.popup_error('Please select a Count Months Chronic file first')
+                    continue
+            
+            # Clear log and show validation progress
             window['-LOG-'].update('')
+            window['-LOG-'].update("Validating files and month selection...\n", append=True)
+            window.refresh()
+            
+            try:
+                # Validate month selection
+                is_valid, message = validate_month_selection(
+                    values['-IMPACTS-'], 
+                    values['-COUNTS-'], 
+                    values['-MONTH-'], 
+                    values['-YEAR-']
+                )
+                
+                window['-LOG-'].update(f"{message}\n", append=True)
+                
+                if not is_valid:
+                    # Show warning popup with option to continue
+                    result = sg.popup_yes_no(
+                        f"{message}\n\nDo you want to continue anyway?",
+                        title="Month Validation Warning",
+                        no_titlebar=False
+                    )
+                    if result == 'Yes':
+                        window['-LOG-'].update("⚠️  User chose to continue despite warning\n", append=True)
+                    else:
+                        window['-LOG-'].update("❌ Validation cancelled by user\n", append=True)
+                else:
+                    sg.popup_ok("✅ Files look good! Month selection appears correct.", title="Validation Success")
+                    
+            except Exception as e:
+                error_msg = f"Validation error: {str(e)}"
+                window['-LOG-'].update(f"❌ {error_msg}\n", append=True)
+                sg.popup_error(f"Validation failed:\n{error_msg}")
+            
+            if event == 'Generate Report':
+                # Validate inputs
+                if not values['-IMPACTS-']:
+                    sg.popup_error('Please select an Impacts Crosstab file')
+                    continue
+                if not values['-COUNTS-']:
+                    sg.popup_error('Please select a Count Months Chronic file')
+                    continue
+                    
+                # Clear log
+                window['-LOG-'].update('')
+            
+            # Automatic month validation before generation
+            window['-LOG-'].update("Validating month selection before generation...\n", append=True)
+            window.refresh()
+            
+            try:
+                is_valid, message = validate_month_selection(
+                    values['-IMPACTS-'], 
+                    values['-COUNTS-'], 
+                    values['-MONTH-'], 
+                    values['-YEAR-']
+                )
+                
+                window['-LOG-'].update(f"{message}\n", append=True)
+                
+                if not is_valid:
+                    # Show warning and ask if user wants to proceed
+                    result = sg.popup_yes_no(
+                        f"⚠️  MONTH VALIDATION WARNING:\n\n{message}\n\nDo you want to continue generating the report anyway?\n\n(Click 'No' to go back and fix the month selection)",
+                        title="Confirm Report Generation",
+                        no_titlebar=False
+                    )
+                    if result != 'Yes':
+                        window['-LOG-'].update("❌ Report generation cancelled due to month validation warning\n", append=True)
+                        continue
+                    else:
+                        window['-LOG-'].update("⚠️  Proceeding with report generation despite month warning\n", append=True)
+                
+            except Exception as e:
+                window['-LOG-'].update(f"⚠️  Month validation failed: {str(e)}, proceeding anyway...\n", append=True)
             
             try:
                 # Log start
@@ -1906,6 +2475,12 @@ def gui_main():
                 error_msg = f"❌ Error: {str(e)}\n"
                 window['-LOG-'].update(error_msg, append=True)
                 sg.popup_error(f'Error generating report:\n{str(e)}')
+        
+        except Exception as e:
+            # Catch any GUI errors to prevent crashes
+            print(f"GUI Error: {str(e)}")
+            sg.popup_error(f'An unexpected error occurred:\n{str(e)}\n\nThe GUI will remain open.')
+            continue
     
     window.close()
 
