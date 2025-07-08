@@ -16,6 +16,8 @@ a = Analysis(
     datas=[
         # Include JSON data files
         ('docs/frozen_legacy_list.json', 'docs'),
+        # Include historical data for trend analysis continuity
+        ('history/', 'history'),
         # Include any other required data files
         ('requirements.txt', '.'),
     ],

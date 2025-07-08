@@ -64,10 +64,11 @@ Reports are automatically saved in a `final_output` folder next to the executabl
 - Fixed 3x inflation bug - costs now match source data exactly
 - LZA010663: $9,215 (was incorrectly $27,645)
 
-### **Complete Trend Analysis:**
-- Working month-over-month comparisons
-- New problem circuits vs improvements
-- Strategic recommendations
+### **Complete Trend Analysis with Historical Data:**
+- **Pre-loaded History:** May and June 2025 data included for immediate trend analysis
+- Working month-over-month comparisons from day one
+- New problem circuits vs improvements identification
+- Strategic recommendations with full context
 
 ---
 
@@ -106,7 +107,7 @@ Reports are automatically saved in a `final_output` folder next to the executabl
 
 ## 📋 **File Size Information**
 
-- **Executable Size:** ~73MB
+- **Executable Size:** ~77MB (includes May-June 2025 historical data)
 - **Generated Reports:** ~5-10MB total
 - **Recommended:** 100MB free space for processing
 
