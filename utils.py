@@ -9,7 +9,7 @@ import hashlib
 import logging
 import statistics
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 
 def canonical_id(raw: str) -> str:
@@ -167,3 +167,55 @@ def get_file_sha256(file_path: Path) -> str:
         str: SHA256 hash in hexadecimal
     """
     return _sha_cache.get_file_hash(file_path)
+
+
+def validate_calculations(metrics: Dict[str, Any]) -> None:
+    """
+    Validate calculation results to catch impossible values.
+    Raises ValueError if any critical validation fails.
+    
+    Args:
+        metrics: Dictionary containing calculated metrics
+        
+    Raises:
+        ValueError: If any availability is outside 0-100% range
+    """
+    # Check availability values
+    if 'bottom5_availability' in metrics:
+        for circuit, availability in metrics['bottom5_availability'].items():
+            if availability < 0 or availability > 100:
+                raise ValueError(f"Invalid availability for {circuit}: {availability:.1f}% (must be 0-100%)")
+    
+    # Check MTBF values for reasonableness  
+    if 'bottom5_mtbf' in metrics:
+        for circuit, mtbf_days in metrics['bottom5_mtbf'].items():
+            if mtbf_days < 0:
+                raise ValueError(f"Invalid MTBF for {circuit}: {mtbf_days:.1f} days (must be positive)")
+    
+    logging.info("✅ Calculation validation passed")
+
+
+def filter_test_circuits(df, circuit_column='Config Item Name'):
+    """
+    Filter out CID_TEST circuits from any DataFrame.
+    
+    Args:
+        df: DataFrame to filter
+        circuit_column: Name of the column containing circuit IDs
+        
+    Returns:
+        DataFrame with test circuits removed
+    """
+    if circuit_column not in df.columns:
+        return df
+    
+    initial_count = len(df)
+    # Filter CID_TEST circuits
+    test_filter = df[circuit_column].str.startswith('CID_TEST', na=False)
+    filtered_df = df[~test_filter]
+    
+    filtered_count = initial_count - len(filtered_df)
+    if filtered_count > 0:
+        logging.info(f"Filtered out {filtered_count} test circuits from data")
+    
+    return filtered_df

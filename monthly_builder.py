@@ -20,7 +20,11 @@ import seaborn as sns
 import FreeSimpleGUI as sg
 import os
 import re
+import logging
+import sys
+import subprocess
 from analyze_data import get_rolling_ticket_total
+from utils import canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256, validate_calculations, filter_test_circuits
 
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
@@ -29,57 +33,6 @@ DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy 
 # Core chronic classification thresholds (unchanged in v0.1.7-b)
 AVAIL_THRESH_PCT = float(os.getenv("MR_THRESH_AVAIL_PCT", 5.0))  # Availability significant change threshold
 
-
-def canonical_id(raw: str) -> str:
-    """
-    Extract canonical circuit ID by splitting on first delimiter.
-    
-    Rules:
-    1. Find first occurrence of any delimiter in precedence order: '_', '/', ' ', '-'
-    2. For '-': only split if it follows ≥3 digits  
-    3. Otherwise return original string
-    
-    Examples:
-    - 091NOID1143035717419_889599 → 091NOID1143035717419
-    - 500335805-CH1/EXTRA → 500335805 (hyphen at pos 9, slash at pos 13, hyphen wins)
-    - VID-1583 → VID-1583 (no split - letters before hyphen)
-    """
-    if not raw or not isinstance(raw, str):
-        return str(raw) if raw is not None else ""
-    
-    # Find first occurrence of each delimiter
-    # For hyphen: find first hyphen that has ≥3 digits immediately before it
-    hyphen_pos = -1
-    for i, char in enumerate(raw):
-        if char == '-':
-            # Check if there are ≥3 digits immediately before this hyphen
-            digits_before = 0
-            j = i - 1
-            while j >= 0 and raw[j].isdigit():
-                digits_before += 1
-                j -= 1
-            if digits_before >= 3:
-                hyphen_pos = i
-                break
-    
-    delimiters = [
-        ('_', raw.find('_')),
-        ('/', raw.find('/')),
-        (' ', raw.find(' ')),
-        ('-', hyphen_pos)  # Conditional hyphen
-    ]
-    
-    # Filter out delimiters not found (-1) and find the earliest position
-    found_delimiters = [(delim, pos) for delim, pos in delimiters if pos != -1]
-    
-    if not found_delimiters:
-        return raw
-    
-    # Get the delimiter that appears first (lowest position)
-    first_delim, first_pos = min(found_delimiters, key=lambda x: x[1])
-    
-    # Split at the specific position, not using generic split (which finds first occurrence)
-    return raw[:first_pos]
 
 
 class ChronicReportBuilder:
@@ -140,7 +93,7 @@ class ChronicReportBuilder:
             blank_percentage = (blank_count / total_rows * 100) if total_rows > 0 else 0
             if blank_count > 0:
                 print(f"Forward-filling {blank_count} blank month cells ({blank_percentage:.1f}% of data)")
-                impacts_df['Inc Resolved At (Month / Year)'].ffill(inplace=True)
+                impacts_df.loc[:, 'Inc Resolved At (Month / Year)'] = impacts_df['Inc Resolved At (Month / Year)'].ffill()
         
         # Store data quality info for GUI warning
         self.data_quality_warning = blank_percentage > 10
@@ -222,53 +175,84 @@ class ChronicReportBuilder:
         return impacts_df, counts_df
     
     def load_baseline_status(self, output_dir='./final_output'):
-        """Load baseline legacy status from prior chronic summaries (May 2025 cutover)"""
+        """Load baseline legacy status from frozen legacy list (v0.1.9+)"""
         baseline_status = {}
         baseline_ids = set()
         cutover_found = False
         
         try:
             from pathlib import Path
-            import glob
             
-            # Scan for chronic summary JSON files
-            output_path = Path(output_dir)
-            if output_path.exists():
-                json_files = list(output_path.glob('chronic_summary_*.json'))
-                
-                # Sort by filename to find earliest available summary
-                json_files.sort()
-                
-                for json_file in json_files:
-                    try:
-                        with open(json_file, 'r') as f:
-                            summary_data = json.load(f)
-                        
-                        # Check if this is May 2025 or earlier
-                        filename = json_file.name
-                        if 'May_2025' in filename or any(month in filename for month in 
-                            ['January_2025', 'February_2025', 'March_2025', 'April_2025']):
-                            cutover_found = True
+            # v0.1.9: Load from frozen legacy list first
+            frozen_legacy_path = Path('./docs/frozen_legacy_list.json')
+            if frozen_legacy_path.exists():
+                try:
+                    with open(frozen_legacy_path, 'r') as f:
+                        frozen_data = json.load(f)
+                    
+                    # Map frozen legacy statuses using canonical IDs, excluding test circuits
+                    for circuit in frozen_data.get('chronic_consistent', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Consistent'
+                            baseline_ids.add(canonical)
+                    
+                    for circuit in frozen_data.get('chronic_inconsistent', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Inconsistent'
+                            baseline_ids.add(canonical)
+                    
+                    for circuit in frozen_data.get('media_chronics', []):
+                        if not circuit.startswith('CID_TEST'):  # P1-b: Filter test circuits
+                            canonical = canonical_id(circuit)
+                            baseline_status[canonical] = 'Media Chronic'
+                        baseline_ids.add(canonical)
+                    
+                    cutover_found = True
+                    logging.info(f"Loaded {len(baseline_status)} circuits from frozen legacy list")
+                    
+                except (json.JSONDecodeError, KeyError) as e:
+                    logging.warning(f"Failed to load frozen legacy list: {e}")
+            
+            # Fallback: scan for chronic summary JSON files if frozen list not available
+            if not cutover_found:
+                logging.info("Frozen legacy list not found, falling back to JSON scan")
+                output_path = Path(output_dir)
+                if output_path.exists():
+                    json_files = list(output_path.glob('chronic_summary_*.json'))
+                    json_files.sort()
+                    
+                    for json_file in json_files:
+                        try:
+                            with open(json_file, 'r') as f:
+                                summary_data = json.load(f)
                             
-                            # Extract legacy status from existing chronics
-                            existing = summary_data.get('chronic_data', {}).get('existing_chronics', {})
-                            
-                            # Map consistent/inconsistent statuses using canonical IDs
-                            for circuit in existing.get('chronic_consistent', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Consistent'
-                                baseline_ids.add(canonical)
-                            
-                            for circuit in existing.get('chronic_inconsistent', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Inconsistent'
-                                baseline_ids.add(canonical)
-                            
-                            # Media chronics maintain their status
-                            for circuit in existing.get('media_chronics', []):
-                                canonical = canonical_id(circuit)
-                                baseline_status[canonical] = 'Media Chronic'
-                                baseline_ids.add(canonical)
+                            # Check if this is May 2025 or earlier
+                            filename = json_file.name
+                            if 'May_2025' in filename or any(month in filename for month in 
+                                ['January_2025', 'February_2025', 'March_2025', 'April_2025']):
+                                cutover_found = True
+                                
+                                # Extract legacy status from existing chronics
+                                existing = summary_data.get('chronic_data', {}).get('existing_chronics', {})
+                                
+                                # Map consistent/inconsistent statuses using canonical IDs
+                                for circuit in existing.get('chronic_consistent', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Consistent'
+                                    baseline_ids.add(canonical)
+                                
+                                for circuit in existing.get('chronic_inconsistent', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Inconsistent'
+                                    baseline_ids.add(canonical)
+                                
+                                # Media chronics maintain their status
+                                for circuit in existing.get('media_chronics', []):
+                                    canonical = canonical_id(circuit)
+                                    baseline_status[canonical] = 'Media Chronic'
+                                    baseline_ids.add(canonical)
                             
                             # NEW: Include prior month's New Chronics for promotion evaluation
                             new_chronics_data = summary_data.get('chronic_data', {}).get('new_chronics', {})
@@ -280,11 +264,11 @@ class ChronicReportBuilder:
                                     baseline_ids.add(canonical)
                                     promotion_count += 1
                             
-                            print(f"📊 Loaded baseline status from {json_file.name}: {len(baseline_status)} circuits ({len(baseline_status) - promotion_count} legacy + {promotion_count} pending promotion)")
-                            break
-                    except Exception as file_error:
-                        print(f"⚠️  Error reading {json_file.name}: {file_error}")
-                        continue
+                                print(f"📊 Loaded baseline status from {json_file.name}: {len(baseline_status)} circuits ({len(baseline_status) - promotion_count} legacy + {promotion_count} pending promotion)")
+                                break
+                        except Exception as file_error:
+                            print(f"⚠️  Error reading {json_file.name}: {file_error}")
+                            continue
                 
         except Exception as e:
             print(f"⚠️  Error loading baseline status: {e}")
@@ -337,8 +321,8 @@ class ChronicReportBuilder:
             'SSO-JBTKRHS002F-DWDM10',  # Sansa
             '443463817', '445597814', '443919489', '445979698', '443832799', 'FRO2007133508',  # Lumen
             'W1E32092',  # Verizon (April addition)
-            'N9675474L', 'N2864477L',  # Telstra (April additions)
-            'CID_TEST_7', 'CID_TEST_4'  # Test circuits for ticket classification validation
+            'N9675474L', 'N2864477L'  # Telstra (April additions)
+            # P1-b: Removed CID_TEST circuits from hardcoded list
         ]
         
         # Add circuits with pending_promotion status to the processing list
@@ -531,6 +515,49 @@ class ChronicReportBuilder:
             'merged_data': merged_df
         }
     
+    def generate_metadata(self, impacts_file, counts_file):
+        """Generate metadata block for JSON output (v0.1.9)"""
+        from pathlib import Path
+        
+        try:
+            # Get git commit hash
+            try:
+                git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], 
+                                                   stderr=subprocess.DEVNULL).decode().strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                git_commit = "unknown"
+            
+            # Generate file hashes
+            impacts_path = Path(impacts_file)
+            counts_path = Path(counts_file)
+            
+            metadata = {
+                'tool_version': '0.1.9',
+                'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                'git_commit': git_commit,
+                'run_timestamp': datetime.now().isoformat() + 'Z',  # UTC format
+                'crosstab_sha256': get_file_sha256(impacts_path) if impacts_path.exists() else 'unknown',
+                'counts_sha256': get_file_sha256(counts_path) if counts_path.exists() else 'unknown'
+            }
+            
+            # Validate metadata has all required keys
+            if not validate_metadata(metadata):
+                logging.warning("Metadata validation failed - some keys may be missing")
+            
+            return metadata
+            
+        except Exception as e:
+            logging.error(f"Failed to generate metadata: {e}")
+            # Return minimal metadata on error
+            return {
+                'tool_version': '0.1.9',
+                'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                'git_commit': 'error',
+                'run_timestamp': datetime.now().isoformat() + 'Z',
+                'crosstab_sha256': 'error',
+                'counts_sha256': 'error'
+            }
+
     def calculate_metrics(self, chronic_data):
         """Calculate all required metrics for the report using FULL dataset"""
         
@@ -578,11 +605,14 @@ class ChronicReportBuilder:
         
         metrics['total_providers'] = len(vendor_count)
         
-        # USE FULL DATASET (all 64 circuits) for analysis, not just chronics
+        # USE FULL DATASET (all circuits) for analysis, not just chronics
         all_circuits_df = merged_df.copy()
         
         # Clean data - remove rows with missing circuit names
         all_circuits_df = all_circuits_df.dropna(subset=['Config Item Name'])
+        
+        # P1-b: Filter test circuits from analysis data  
+        all_circuits_df = filter_test_circuits(all_circuits_df, 'Config Item Name')
         
         # Top 5 by ticket count (from ALL circuits in data)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
@@ -597,7 +627,7 @@ class ChronicReportBuilder:
             metrics['top5_cost'] = cost_data.head(5).to_dict()
         
         # Bottom 5 availability (from ALL circuits in data)
-        # v0.1.8: Use 'Outage Duration' column (in minutes) with smart unit detection
+        # P1-a fix: Always treat 'Outage Duration' as minutes, convert once to hours
         outage_column = None
         if 'Outage Duration' in all_circuits_df.columns:
             outage_column = 'Outage Duration'
@@ -605,37 +635,43 @@ class ChronicReportBuilder:
             outage_column = 'SUM Outage (Hours)'
         
         if outage_column:
-            # Calculate days in month (assuming 3-month period)
-            days_in_period = 90  # 3 months approximation
-            potential_hours = days_in_period * 24
+            # Calculate potential service hours for 3-month period
+            days_in_period = 90  # 3 months approximation  
+            potential_hours = days_in_period * 24  # 2160 hours total
             
-            # Get outage data by circuit
-            circuit_outages = all_circuits_df.groupby('Config Item Name')[outage_column].sum()
+            # Get outage data by circuit, filter test circuits first
+            outage_df = all_circuits_df[['Config Item Name', outage_column]].copy()
+            outage_df = filter_test_circuits(outage_df, 'Config Item Name')
+            circuit_outages = outage_df.groupby('Config Item Name')[outage_column].sum()
             
-            # v0.1.8: Smart unit detection - check if values appear to be minutes or hours
-            max_outage_value = circuit_outages.max() if len(circuit_outages) > 0 else 0
-            
-            # If any value exceeds potential_hours * 2, assume it's in minutes
-            if max_outage_value > potential_hours * 2:
-                # Values are in minutes, convert to hours
-                print(f"Detected outage duration in minutes (max value: {max_outage_value:.1f})")
-                outage_hours = circuit_outages / 60
+            # P1-a: Always treat Outage Duration as minutes, convert to hours
+            if outage_column == 'Outage Duration':
+                print(f"Treating '{outage_column}' as minutes, converting to hours")
+                outage_hours = circuit_outages / 60  # Convert minutes to hours
             else:
-                # Values appear to be in hours already
-                print(f"Detected outage duration in hours (max value: {max_outage_value:.1f})")
+                print(f"Using '{outage_column}' as hours directly")  
                 outage_hours = circuit_outages
             
             # Calculate availability: 100 × (1 – OutageHours / PotentialHours)
             availability_pct = 100 * (1 - outage_hours / potential_hours)
             
-            # Filter to circuits that actually have outage data
-            availability_pct = availability_pct[outage_hours > 0]
-            avail_data = availability_pct.sort_values()
+            # P1-a: Validate availability values
+            invalid_circuits = availability_pct[(availability_pct < 0) | (availability_pct > 100)]
+            if len(invalid_circuits) > 0:
+                logging.warning(f"Found {len(invalid_circuits)} circuits with invalid availability:")
+                for circuit, avail in invalid_circuits.items():
+                    outage_hrs = outage_hours.get(circuit, 0)
+                    logging.warning(f"  {circuit}: {avail:.1f}% (outage: {outage_hrs:.1f}h / {potential_hours}h)")
+            
+            # Filter to circuits with reasonable availability (0-100%)
+            valid_availability = availability_pct[(availability_pct >= 0) & (availability_pct <= 100)]
+            avail_data = valid_availability.sort_values()
             metrics['bottom5_availability'] = avail_data.head(5).to_dict()
         
-        # MTBF calculations (from ALL circuits in data)
+        # MTBF calculations (from ALL circuits in data, excluding test circuits)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
             operating_hours = 24 * 90  # 90 days * 24 hours
+            # Note: all_circuits_df already has test circuits filtered out above
             circuit_tickets = all_circuits_df.groupby('Config Item Name')['Distinct count of Inc Nbr'].sum()
             # Filter to circuits with actual incidents
             circuit_tickets = circuit_tickets[circuit_tickets > 0]
@@ -719,6 +755,13 @@ class ChronicReportBuilder:
                 metrics['bottom5_availability'] = add_indicators(metrics['bottom5_availability'])
             if 'bottom5_mtbf' in metrics:
                 metrics['bottom5_mtbf'] = add_indicators(metrics['bottom5_mtbf'])
+        
+        # P1-a: Validate calculations before returning
+        try:
+            validate_calculations(metrics)
+        except ValueError as e:
+            logging.error(f"Calculation validation failed: {e}")
+            # Continue execution but log the error
         
         return metrics
     
@@ -1847,11 +1890,15 @@ class ChronicReportBuilder:
         # Generate trend analysis Word document
         trend_word_output = self.generate_trend_analysis_word(month_str, output_dir)
         
-        # Export data summary
+        # v0.1.9: Generate metadata block
+        metadata = self.generate_metadata(impacts_file, counts_file)
+        
+        # Export data summary with metadata
         summary_data = {
-            'version': '0.1.6',
+            'version': '0.1.9',
             'consistency_mode': 'hybrid',
             'baseline_hotfix': 'new_chronic_promotion_fix',
+            'metadata': metadata,
             'chronic_data': chronic_data,
             'metrics': metrics,
             'generated_at': report_date.isoformat()
@@ -1870,6 +1917,100 @@ class ChronicReportBuilder:
             print(f"[SUCCESS] Circuit Report (PDF): {pdf_output}")
         
         return corner_word_output, circuit_word_output, pdf_output
+
+def validate_month_selection(impacts_file: str, counts_file: str, selected_month: str, selected_year: str) -> tuple[bool, str]:
+    """
+    Validate that the selected month matches the data in the files.
+    
+    Returns:
+        tuple: (is_valid, message)
+    """
+    try:
+        # Load a sample of the impacts file to check months
+        if impacts_file.lower().endswith('.csv'):
+            sample_df = pd.read_csv(impacts_file, nrows=100)
+        else:
+            sample_df = pd.read_excel(impacts_file, nrows=100)
+        
+        # Clean column names
+        sample_df.columns = sample_df.columns.str.strip()
+        
+        # Handle column aliasing
+        if 'Configuration Item Name' in sample_df.columns:
+            sample_df = sample_df.rename(columns={'Configuration Item Name': 'Config Item Name'})
+        
+        # Check if we have the month column
+        month_column = 'Inc Resolved At (Month / Year)'
+        if month_column not in sample_df.columns:
+            return True, "Cannot validate month - month column not found in data"
+        
+        # Get unique months from the data
+        data_months = sample_df[month_column].dropna().unique()
+        
+        if len(data_months) == 0:
+            return True, "Cannot validate month - no month data found"
+        
+        # Parse the months to understand the data period
+        month_names = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+        
+        # Convert selected month to expected 3-month window
+        try:
+            selected_month_num = month_names.index(selected_month) + 1
+            selected_year_num = int(selected_year)
+            
+            # Calculate expected 3-month window BEFORE the selected month
+            # For June report, we expect March, April, May data
+            expected_months = []
+            for i in range(3):
+                month_num = selected_month_num - 3 + i  # Changed from -2 to -3
+                year_num = selected_year_num
+                
+                if month_num <= 0:
+                    month_num += 12
+                    year_num -= 1
+                
+                expected_months.append(f"{month_names[month_num-1]} {year_num}")
+            
+            # Check if data contains months that suggest a different report period
+            data_months_str = [str(m) for m in data_months if pd.notna(m)]
+            
+            # Simple heuristic: if we see months that don't match expected window, warn
+            unexpected_months = []
+            for data_month in data_months_str[:5]:  # Check first 5 unique months
+                if data_month not in expected_months:
+                    unexpected_months.append(data_month)
+            
+            if unexpected_months:
+                suggested_month = None
+                # Try to infer correct month from data
+                for data_month in data_months_str:
+                    for i, month_name in enumerate(month_names):
+                        if month_name in data_month and selected_year in data_month:
+                            # This could be the correct report month
+                            suggested_month = month_name
+                            break
+                    if suggested_month:
+                        break
+                
+                warning_msg = f"⚠️  Data/Month Mismatch Detected!\n\n"
+                warning_msg += f"For a {selected_month} {selected_year} report, the data should contain:\n"
+                warning_msg += f"✓ Expected: {', '.join(expected_months)}\n\n"
+                warning_msg += f"But your data contains:\n"
+                warning_msg += f"✗ Found: {', '.join(data_months_str[:3])}...\n"
+                if suggested_month and suggested_month != selected_month:
+                    warning_msg += f"\n💡 Suggestion: This looks like data for a '{suggested_month}' report"
+                
+                return False, warning_msg
+            
+            return True, f"✅ Month selection looks correct for {selected_month} {selected_year}"
+            
+        except (ValueError, IndexError):
+            return True, "Cannot validate month - date parsing error"
+            
+    except Exception as e:
+        # Don't block on validation errors, just warn
+        return True, f"Month validation failed: {str(e)}"
 
 def gui_main():
     """Main GUI interface for monthly reporting"""
@@ -1905,7 +2046,8 @@ def gui_main():
         
         [sg.Text('')],
         [sg.HSeparator()],
-        [sg.Button('Generate Report', size=(15, 2), font=('Arial', 12, 'bold')), 
+        [sg.Button('Validate Files', size=(12, 1), button_color=('white', 'orange')),
+         sg.Button('Generate Report', size=(15, 2), font=('Arial', 12, 'bold')), 
          sg.Button('Exit', size=(15, 2))],
         
         [sg.Text('')],
@@ -1915,22 +2057,97 @@ def gui_main():
     window = sg.Window('Monthly Chronic Circuit Reporting', layout, finalize=True)
     
     while True:
-        event, values = window.read()
-        
-        if event == sg.WIN_CLOSED or event == 'Exit':
-            break
+        try:
+            event, values = window.read()
             
-        if event == 'Generate Report':
-            # Validate inputs
-            if not values['-IMPACTS-']:
-                sg.popup_error('Please select an Impacts Crosstab file')
-                continue
-            if not values['-COUNTS-']:
-                sg.popup_error('Please select a Count Months Chronic file')
-                continue
-                
-            # Clear log
+            if event == sg.WIN_CLOSED or event == 'Exit':
+                break
+            
+            if event == 'Validate Files':
+                # Validate file selections
+                if not values['-IMPACTS-']:
+                    sg.popup_error('Please select an Impacts Crosstab file first')
+                    continue
+                if not values['-COUNTS-']:
+                    sg.popup_error('Please select a Count Months Chronic file first')
+                    continue
+            
+            # Clear log and show validation progress
             window['-LOG-'].update('')
+            window['-LOG-'].update("Validating files and month selection...\n", append=True)
+            window.refresh()
+            
+            try:
+                # Validate month selection
+                is_valid, message = validate_month_selection(
+                    values['-IMPACTS-'], 
+                    values['-COUNTS-'], 
+                    values['-MONTH-'], 
+                    values['-YEAR-']
+                )
+                
+                window['-LOG-'].update(f"{message}\n", append=True)
+                
+                if not is_valid:
+                    # Show warning popup with option to continue
+                    result = sg.popup_yes_no(
+                        f"{message}\n\nDo you want to continue anyway?",
+                        title="Month Validation Warning",
+                        no_titlebar=False
+                    )
+                    if result == 'Yes':
+                        window['-LOG-'].update("⚠️  User chose to continue despite warning\n", append=True)
+                    else:
+                        window['-LOG-'].update("❌ Validation cancelled by user\n", append=True)
+                else:
+                    sg.popup_ok("✅ Files look good! Month selection appears correct.", title="Validation Success")
+                    
+            except Exception as e:
+                error_msg = f"Validation error: {str(e)}"
+                window['-LOG-'].update(f"❌ {error_msg}\n", append=True)
+                sg.popup_error(f"Validation failed:\n{error_msg}")
+            
+            if event == 'Generate Report':
+                # Validate inputs
+                if not values['-IMPACTS-']:
+                    sg.popup_error('Please select an Impacts Crosstab file')
+                    continue
+                if not values['-COUNTS-']:
+                    sg.popup_error('Please select a Count Months Chronic file')
+                    continue
+                    
+                # Clear log
+                window['-LOG-'].update('')
+            
+            # Automatic month validation before generation
+            window['-LOG-'].update("Validating month selection before generation...\n", append=True)
+            window.refresh()
+            
+            try:
+                is_valid, message = validate_month_selection(
+                    values['-IMPACTS-'], 
+                    values['-COUNTS-'], 
+                    values['-MONTH-'], 
+                    values['-YEAR-']
+                )
+                
+                window['-LOG-'].update(f"{message}\n", append=True)
+                
+                if not is_valid:
+                    # Show warning and ask if user wants to proceed
+                    result = sg.popup_yes_no(
+                        f"⚠️  MONTH VALIDATION WARNING:\n\n{message}\n\nDo you want to continue generating the report anyway?\n\n(Click 'No' to go back and fix the month selection)",
+                        title="Confirm Report Generation",
+                        no_titlebar=False
+                    )
+                    if result != 'Yes':
+                        window['-LOG-'].update("❌ Report generation cancelled due to month validation warning\n", append=True)
+                        continue
+                    else:
+                        window['-LOG-'].update("⚠️  Proceeding with report generation despite month warning\n", append=True)
+                
+            except Exception as e:
+                window['-LOG-'].update(f"⚠️  Month validation failed: {str(e)}, proceeding anyway...\n", append=True)
             
             try:
                 # Log start
@@ -1985,6 +2202,12 @@ def gui_main():
                 error_msg = f"❌ Error: {str(e)}\n"
                 window['-LOG-'].update(error_msg, append=True)
                 sg.popup_error(f'Error generating report:\n{str(e)}')
+        
+        except Exception as e:
+            # Catch any GUI errors to prevent crashes
+            print(f"GUI Error: {str(e)}")
+            sg.popup_error(f'An unexpected error occurred:\n{str(e)}\n\nThe GUI will remain open.')
+            continue
     
     window.close()
 
