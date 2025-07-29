@@ -1723,6 +1723,284 @@ class ChronicReportBuilder:
         doc.save(output_path)
         return output_path
     
+    def generate_chronic_corner_lite(self, metrics, chronic_data, output_path, month_str=None):
+        """Generate Chronic Corner Lite format - simplified executive version"""
+        
+        doc = Document()
+        
+        # Title section with teal background
+        from docx.shared import RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+        from docx.oxml.shared import qn
+        from docx.oxml import OxmlElement
+        
+        # Create a table for the header with teal background
+        header_table = doc.add_table(rows=1, cols=1)
+        header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        header_table.autofit = True
+        
+        # Configure header cell with teal background
+        header_cell = header_table.cell(0, 0)
+        tcPr = header_cell._tc.get_or_add_tcPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:fill'), '00A19A')  # Teal color
+        tcPr.append(shd)
+        
+        # Add title text
+        p = header_cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run('CHRONIC CORNER')
+        run.font.size = Pt(36)
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(255, 255, 255)  # White text
+        
+        # Add some spacing
+        doc.add_paragraph()
+        
+        # Trends section
+        doc.add_heading('Trends', level=1)
+        
+        # Extract month/year for display
+        if month_str:
+            month_display = month_str.replace('_', ' ')
+        else:
+            month_display = "May 2025"
+        
+        # Build trend bullet points
+        trends_list = []
+        
+        # Main metric - show existing + new = total
+        total_with_new = metrics['total_chronic_circuits'] + metrics.get('new_chronic_count', 0)
+        trends_list.append(f"Confirmed {total_with_new} chronic circuits ({metrics['total_chronic_circuits']} existing + {metrics.get('new_chronic_count', 0)} new) among {metrics['total_providers']} Circuit Providers.")
+        
+        # Media services
+        trends_list.append(f"Identified {metrics['media_chronics']} media services as chronic.")
+        
+        # New chronics
+        if metrics.get('new_chronic_count', 0) > 0:
+            new_chronic_names = []
+            for provider, circuits in metrics.get('new_chronics', {}).items():
+                new_chronic_names.extend(circuits)
+            if new_chronic_names:
+                circuit_list = ', '.join(new_chronic_names)
+                trends_list.append(f"New chronic circuit{'s' if metrics['new_chronic_count'] > 1 else ''} this month: {circuit_list}")
+        
+        # Add specific metrics
+        # Circuit with most tickets
+        if 'top5_tickets' in metrics and metrics['top5_tickets']:
+            highest_ticket_circuit = max(metrics['top5_tickets'], key=metrics['top5_tickets'].get)
+            highest_ticket_count = metrics['top5_tickets'][highest_ticket_circuit]
+            trends_list.append(f"Circuit with most tickets: {highest_ticket_circuit} ({int(highest_ticket_count)})")
+        
+        # Circuit with highest cost
+        if 'top5_cost' in metrics and metrics['top5_cost']:
+            highest_cost_circuit = max(metrics['top5_cost'], key=metrics['top5_cost'].get)
+            highest_cost = metrics['top5_cost'][highest_cost_circuit]
+            trends_list.append(f"Circuit with highest cost: {highest_cost_circuit} (${highest_cost:,.0f})")
+        
+        # Worst availability
+        if 'bottom5_availability' in metrics and metrics['bottom5_availability']:
+            worst_circuit_name = min(metrics['bottom5_availability'], key=metrics['bottom5_availability'].get)
+            worst_availability = metrics['bottom5_availability'][worst_circuit_name]
+            trends_list.append(f"Worst availability: {worst_circuit_name} ({worst_availability:.1f}%)")
+        
+        # Add bullets to document
+        for trend in trends_list:
+            p = doc.add_paragraph(style='List Bullet')
+            p.add_run(trend)
+        
+        # Add 2 blank bullets for manual entry
+        for _ in range(2):
+            doc.add_paragraph(style='List Bullet')
+        
+        # Add spacing before metrics
+        doc.add_paragraph()
+        doc.add_paragraph()
+        
+        # Metric boxes at bottom - 1-row 4-column table
+        metrics_table = doc.add_table(rows=2, cols=4)
+        metrics_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        
+        # Configure table formatting for metric cells
+        for row_idx, row in enumerate(metrics_table.rows):
+            for cell in row.cells:
+                if row_idx == 0:  # Number cells
+                    # Light blue background for metrics
+                    tcPr = cell._tc.get_or_add_tcPr()
+                    shd = OxmlElement('w:shd')
+                    shd.set(qn('w:fill'), 'E2E5FF')
+                    tcPr.append(shd)
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Define metrics
+        metric_data = [
+            (str(len(chronic_data['existing_chronics']['chronic_consistent'])), 'Chronic', 'Consistent'),
+            (str(metrics['total_providers']), 'Circuit', 'Providers'),
+            (str(metrics['media_chronics']), 'Media', 'Services'),
+            (str(metrics.get('new_chronic_count', 0)), 'New', 'Chronics')
+        ]
+        
+        # Fill metrics - numbers in first row, labels in second row
+        for col_idx, (number, label1, label2) in enumerate(metric_data):
+            # Number cell
+            num_cell = metrics_table.cell(0, col_idx)
+            p = num_cell.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(number)
+            run.font.size = Pt(48)
+            run.font.bold = True
+            
+            # Label cell
+            label_cell = metrics_table.cell(1, col_idx)
+            p = label_cell.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.add_run(label1).font.size = Pt(14)
+            p.add_run('\n')
+            p.add_run(label2).font.size = Pt(14)
+        
+        doc.save(output_path)
+        return output_path
+    
+    def generate_chronic_circle_lite(self, chronic_data, metrics, output_path, month_str=None):
+        """Generate Chronic Circle Report Lite - condensed executive summary"""
+        
+        doc = Document()
+        
+        # Title
+        doc.add_heading('Chronic Circle Report - Executive Summary', 0)
+        
+        # Extract month/year for display
+        if month_str:
+            month_display = month_str.replace('_', ' ')
+        else:
+            month_display = "May 2025"
+        
+        # Date
+        doc.add_paragraph(f"Report Period: {month_display}")
+        doc.add_paragraph()
+        
+        # Key Metrics section
+        doc.add_heading('Key Metrics', level=1)
+        
+        # Calculate aggregate metrics
+        total_tickets = sum(metrics.get('top5_tickets', {}).values()) if metrics.get('top5_tickets') else 0
+        total_cost = sum(metrics.get('top5_cost', {}).values()) if metrics.get('top5_cost') else 0
+        avg_availability = sum(metrics.get('bottom5_availability', {}).values()) / len(metrics.get('bottom5_availability', {})) if metrics.get('bottom5_availability') else 95.0
+        
+        # Use existing average MTBF calculation
+        chronic_mtbf = metrics.get('avg_mtbf_days', 0)
+        
+        # Calculate total with new
+        total_with_new = metrics['total_chronic_circuits'] + metrics.get('new_chronic_count', 0)
+        
+        # Get consistent vs inconsistent counts
+        consistent_count = len(chronic_data.get('existing_chronics', {}).get('chronic_consistent', []))
+        inconsistent_count = len(chronic_data.get('existing_chronics', {}).get('chronic_inconsistent', []))
+        
+        metrics_text = f"""
+• Total Chronic Circuits: {total_with_new} ({metrics['total_chronic_circuits']} existing + {metrics.get('new_chronic_count', 0)} new)
+• Chronic Consistent: {consistent_count}
+• Chronic Inconsistent: {inconsistent_count}
+• Circuit Providers Affected: {metrics['total_providers']}
+• Media Services (Chronic): {metrics['media_chronics']}
+• New Chronic This Month: {', '.join([c for circuits in metrics.get('new_chronics', {}).values() for c in circuits]) if metrics.get('new_chronic_count', 0) > 0 else 'None'}
+• Average MTBF (All Chronics): {chronic_mtbf:.1f} days
+"""
+        doc.add_paragraph(metrics_text)
+        
+        # Key Takeaways section
+        doc.add_heading('Key Takeaways', level=1)
+        
+        takeaways = []
+        
+        # Add specific metrics first
+        # Circuit with most tickets
+        if 'top5_tickets' in metrics and metrics['top5_tickets']:
+            highest_ticket_circuit = max(metrics['top5_tickets'], key=metrics['top5_tickets'].get)
+            highest_ticket_count = metrics['top5_tickets'][highest_ticket_circuit]
+            takeaways.append(f"Circuit with most tickets: {highest_ticket_circuit} ({int(highest_ticket_count)})")
+        
+        # Circuit with highest cost
+        if 'top5_cost' in metrics and metrics['top5_cost']:
+            highest_cost_circuit = max(metrics['top5_cost'], key=metrics['top5_cost'].get)
+            highest_cost = metrics['top5_cost'][highest_cost_circuit]
+            takeaways.append(f"Circuit with highest cost: {highest_cost_circuit} (${highest_cost:,.0f})")
+        
+        # Worst availability
+        if 'bottom5_availability' in metrics and metrics['bottom5_availability']:
+            worst_circuit_name = min(metrics['bottom5_availability'], key=metrics['bottom5_availability'].get)
+            worst_availability = metrics['bottom5_availability'][worst_circuit_name]
+            takeaways.append(f"Worst availability: {worst_circuit_name} ({worst_availability:.1f}%)")
+        
+        # Availability concerns
+        if 'bottom5_availability' in metrics and metrics['bottom5_availability']:
+            worst_performers = [c for c, avail in metrics['bottom5_availability'].items() if avail < 85]
+            if worst_performers:
+                takeaways.append(f"{len(worst_performers)} circuits operating below 85% availability threshold")
+        
+        # MTBF concerns
+        if 'bottom5_mtbf' in metrics and metrics['bottom5_mtbf']:
+            low_mtbf = [c for c, mtbf in metrics['bottom5_mtbf'].items() if mtbf < 10]
+            if low_mtbf:
+                takeaways.append(f"{len(low_mtbf)} circuits with MTBF below 10 days indicating severe stability issues")
+        
+        # Add takeaways as bullets
+        for takeaway in takeaways:
+            p = doc.add_paragraph(style='List Bullet')
+            p.add_run(takeaway)
+        
+        # Add 2 blank bullets for manual entry
+        for _ in range(2):
+            doc.add_paragraph(style='List Bullet')
+        
+        # Immediate Actions Required section
+        doc.add_heading('Immediate Actions Required', level=1)
+        
+        actions = [
+            "Review and escalate bottom 5 performing circuits with respective vendors",
+            "Initiate root cause analysis for new chronic circuits",
+            "Schedule vendor meetings for circuits below 85% availability",
+            "Complete circuit lifecycle project implementation"
+        ]
+        
+        for action in actions:
+            p = doc.add_paragraph(style='List Bullet')
+            p.add_run(action)
+        
+        # Bottom 5 Performers summary (table format)
+        if 'bottom5_availability' in metrics and metrics['bottom5_availability']:
+            doc.add_heading('Critical Circuits Requiring Attention', level=1)
+            
+            # Create simple table
+            table = doc.add_table(rows=1, cols=4)
+            table.style = 'Light List'
+            
+            # Headers
+            headers = ['Circuit ID', 'Availability', 'MTBF (days)', 'Tickets']
+            for idx, header in enumerate(headers):
+                cell = table.cell(0, idx)
+                cell.text = header
+                # Make header bold
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+            
+            # Add top 3 worst performers
+            sorted_circuits = sorted(metrics['bottom5_availability'].items(), key=lambda x: x[1])[:3]
+            for circuit_name, availability in sorted_circuits:
+                row = table.add_row()
+                row.cells[0].text = circuit_name
+                row.cells[1].text = f"{availability:.1f}%"
+                # Try to get MTBF and tickets for this circuit
+                mtbf = metrics.get('bottom5_mtbf', {}).get(circuit_name, 'N/A')
+                tickets = metrics.get('top5_tickets', {}).get(circuit_name, 'N/A')
+                row.cells[2].text = f"{mtbf:.1f}" if mtbf != 'N/A' else 'N/A'
+                row.cells[3].text = str(tickets) if tickets != 'N/A' else 'N/A'
+        
+        doc.save(output_path)
+        return output_path
+    
     def generate_circuit_report_pdf(self, metrics, chronic_data, charts, output_path):
         """Generate Circuit Report format for PDF"""
         
@@ -2141,9 +2419,17 @@ class ChronicReportBuilder:
         corner_word_output = output_dir / f"Chronic_Corner_{month_str}.docx"
         self.generate_chronic_corner_word(metrics, chronic_data, corner_word_output, charts, month_str)
         
+        # 1a. Chronic Corner Lite (simplified executive version)
+        corner_lite_output = output_dir / f"Chronic_Corner_Lite_{month_str}.docx"
+        self.generate_chronic_corner_lite(metrics, chronic_data, corner_lite_output, month_str)
+        
         # 2. Circuit Report (Word document for PDF conversion)
         circuit_word_output = output_dir / f"Chronic_Circuit_Report_{month_str}.docx"
         self.generate_circuit_report_pdf(metrics, chronic_data, charts, circuit_word_output)
+        
+        # 2a. Chronic Circle Report Lite (condensed executive summary)
+        circle_lite_output = output_dir / f"Chronic_Circle_Report_Lite_{month_str}.docx"
+        self.generate_chronic_circle_lite(chronic_data, metrics, circle_lite_output, month_str)
         
         # 3. PDF conversion of Circuit Report
         pdf_output = output_dir / f"Chronic_Circuit_Report_{month_str}.pdf"
@@ -2182,7 +2468,9 @@ class ChronicReportBuilder:
         
         print(f"Reports generated in {output_dir}")
         print(f"[SUCCESS] Chronic Corner (Word): {corner_word_output}")
+        print(f"[SUCCESS] Chronic Corner Lite (Word): {corner_lite_output}")
         print(f"[SUCCESS] Circuit Report (Word): {circuit_word_output}")
+        print(f"[SUCCESS] Circuit Report Lite (Word): {circle_lite_output}")
         print(f"[SUCCESS] Chronic List (Text): {text_summary_output}")
         if trend_word_output:
             print(f"[SUCCESS] Trend Analysis (Word): {trend_word_output}")
