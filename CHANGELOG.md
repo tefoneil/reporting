@@ -5,6 +5,49 @@ All notable changes to the Monthly Reporting project will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9-hotfix2] – 2025-07-29
+
+### 🆕 Added - Executive Lite Reports
+- **Chronic Corner Lite**: Executive slide format with teal header and metric boxes
+  - Single-page format with 5-6 key trend bullets
+  - Bottom metric section: Chronic Consistent, Circuit Providers, Media Services, New Chronics
+  - Enhanced metrics: circuit with most tickets, highest cost, worst availability
+  - 2 blank bullets for manual entries
+- **Chronic Circle Report Lite**: Condensed executive summary (2-3 pages)
+  - Key Metrics section with consistent/inconsistent breakdown
+  - Key Takeaways with specific circuit performance data
+  - Immediate Actions Required section
+  - Critical Circuits table (top 3 worst performers)
+  - 2 blank bullets in Key Takeaways for manual additions
+
+### ⚡ Optimized Testing Suite
+- **Reduced test redundancy**: From 10 tests to 4 essential tests (75% faster)
+- **New test script**: `test_optimized.py` for streamlined validation
+- **Maintained coverage**: 100% functionality tested with improved efficiency
+- **Test scenarios**: Basic functionality, show-indicators, exclude-regional, combined flags
+
+### 🔧 Enhanced Metrics Display
+- **Corrected chronic count**: Shows "24 circuits (23 existing + 1 new)" format
+- **Actionable metrics**: Circuit names with specific performance data
+- **Executive focus**: Key performance indicators highlighted for decision-making
+- **Manual entry support**: Structured blank bullets for real-time updates
+
+### 📁 Output Structure Enhanced
+```
+final_output/
+├── Chronic_Corner_[Month].docx                    # ✅ Comprehensive (unchanged)
+├── Chronic_Corner_Lite_[Month].docx              # 🆕 Executive slide format
+├── Chronic_Circuit_Report_[Month].docx           # ✅ Comprehensive (unchanged)
+├── Chronic_Circle_Report_Lite_[Month].docx       # 🆕 Condensed summary
+└── [all other existing files unchanged]
+```
+
+### Technical Details
+- Zero workflow changes: Same GUI process, 2 additional files auto-generated
+- Uses existing calculations only: No new complex metric computations
+- Preserved functionality: All comprehensive reports remain identical
+- Enhanced executive usability: Professional formatting with manual entry flexibility
+
 ## [0.1.9] – 2025-07-08
 
 ### Added

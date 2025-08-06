@@ -1,0 +1,67 @@
+# MONTHLY PERFORMANCE TREND ANALYSIS
+## May 2025 → June
+======================================================================
+
+## NETWORK HEALTH OVERVIEW
+• **Total Chronic Circuits**: 23 → 23 (+0 change)
+• **New Chronics Identified**: 1
+• **Consistent Circuits**: 8 → 8 (+0)
+
+## TOP TICKET GENERATORS ANALYSIS
+### New Problem Circuits:
+• **PCCW** entered at #2 (31tickets)
+• **091NOID1143035717849** entered at #4 (21tickets)
+• **Verizon** entered at #5 (21tickets)
+• **Telstra** entered at #3 (23tickets)
+
+### Improved Circuits:
+• **W1E32092** improved out of worst performers (was #3)
+• **SR216187** improved out of worst performers (was #1)
+• **PTH** improved out of worst performers (was #4)
+• **LZA010635** improved out of worst performers (was #5)
+
+## COST TO SERVE ANALYSIS
+### New Problem Circuits:
+• **Cirion** entered at #4 ($20,650)
+• **NTT** entered at #1 ($27,645)
+• **Telstra** entered at #3 ($21,171)
+
+### Improved Circuits:
+• **500335805** improved out of worst performers (was #4)
+• **LZA010663** improved out of worst performers (was #2)
+• **SR216187** improved out of worst performers (was #1)
+• **PTH** improved out of worst performers (was #3)
+
+## AVAILABILITY PERFORMANCE ANALYSIS
+### New Problem Circuits:
+• **Cirion** entered at #4 (84.3%)
+• **NTT** entered at #1 (79.0%)
+• **Telstra** entered at #3 (83.9%)
+
+### Improved Circuits:
+• **500335805** improved out of worst performers (was #4)
+• **LZA010663** improved out of worst performers (was #2)
+• **SR216187** improved out of worst performers (was #1)
+• **PTH** improved out of worst performers (was #3)
+
+## RELIABILITY (MTBF) ANALYSIS
+### New Problem Circuits:
+• **PCCW** entered at #2 (2.9 days)
+• **091NOID1143035717849** entered at #4 (4.3 days)
+• **Verizon** entered at #5 (4.3 days)
+• **Telstra** entered at #3 (3.9 days)
+
+### Improved Circuits:
+• **W1E32092** improved out of worst performers (was #3)
+• **SR216187** improved out of worst performers (was #1)
+• **PTH** improved out of worst performers (was #4)
+• **LZA010635** improved out of worst performers (was #5)
+
+## STRATEGIC RECOMMENDATIONS
+### EMERGING PATTERNS:
+• New high-cost circuits emerged: NTT, Telstra, Cirion, Telstra
+
+### OVERALL NETWORK TREND:
+• **Stable chronic population** - consistent with previous month
+
+**New chronic circuits this month:** 444282783

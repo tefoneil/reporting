@@ -153,7 +153,7 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
     summary = []
     summary.append("# MONTHLY CHRONIC CIRCUIT TREND ANALYSIS")
     summary.append("=" * 50)
-    summary.append(f"Analysis Period: {months[-2].replace('_', ' ')} → {months[-1].replace('_', ' ')}")
+    summary.append(f"Analysis Period: {months[-2].replace('_', ' ')} -> {months[-1].replace('_', ' ')}")
     summary.append("")
     
     # Overall metrics comparison
@@ -163,7 +163,7 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
     total_change = curr_metrics.get('total_chronic_circuits', 0) - prev_metrics.get('total_chronic_circuits', 0)
     
     summary.append("## EXECUTIVE SUMMARY")
-    summary.append(f"• Total chronic circuits: {prev_metrics.get('total_chronic_circuits', 0)} → {curr_metrics.get('total_chronic_circuits', 0)} ({total_change:+d})")
+    summary.append(f"• Total chronic circuits: {prev_metrics.get('total_chronic_circuits', 0)} -> {curr_metrics.get('total_chronic_circuits', 0)} ({total_change:+d})")
     summary.append(f"• New chronics identified: {curr_metrics.get('new_chronic_count', 0)}")
     summary.append(f"• Media chronics: {curr_metrics.get('media_chronics', 0)}")
     summary.append("")
@@ -183,7 +183,7 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
             for change in significant_changes[:10]:  # Top 10
                 direction = "↑" if change['change'] > 0 else "↓"
                 circuit_clean = change['circuit'].split(' ')[0]  # Remove indicators
-                summary.append(f"• {circuit_clean}: {change['tickets_before']} → {change['tickets_after']} ({change['change']:+d}) {direction}")
+                summary.append(f"• {circuit_clean}: {change['tickets_before']} -> {change['tickets_after']} ({change['change']:+d}) {direction}")
         
         # Status changes
         status_changes = [c for c in changes if c['status_changed']]
@@ -192,7 +192,7 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
             summary.append("### Status Changes:")
             for change in status_changes:
                 circuit_clean = change['circuit'].split(' ')[0]
-                summary.append(f"• {circuit_clean}: {change['status_before']} → {change['status_after']} ({change['tickets_after']} tickets)")
+                summary.append(f"• {circuit_clean}: {change['status_before']} -> {change['status_after']} ({change['tickets_after']} tickets)")
         
         # Calculate averages
         total_tickets_before = sum(c['tickets_before'] for c in changes)
@@ -221,7 +221,7 @@ def generate_trend_summary(monthly_data: Dict[str, Dict]) -> str:
             for change in avail_changes[:5]:  # Top 5 changes
                 direction = "↑" if change['improved'] else "↓"
                 circuit_clean = change['circuit'].split(' ')[0]
-                summary.append(f"• {circuit_clean}: {change['availability_before']:.1f}% → {change['availability_after']:.1f}% ({change['change']:+.1f}%) {direction}")
+                summary.append(f"• {circuit_clean}: {change['availability_before']:.1f}% -> {change['availability_after']:.1f}% ({change['change']:+.1f}%) {direction}")
         summary.append("")
     
     # Top performers comparison

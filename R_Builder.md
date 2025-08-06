@@ -3,16 +3,70 @@
 ## 🎯 **Project Overview**
 Advanced chronic circuit analysis and monthly reporting system that processes ServiceNow/Tableau exports to generate comprehensive Word documents, charts, and trend analysis for network operations teams.
 
-## 🚀 **Current Status: v0.1.9-rc10 PRODUCTION ENHANCED**
+## 🚀 **Current Status: v0.1.9-rc13 PRODUCTION COMPLETE**
 
-### **📋 Latest Enhancement - Enhanced Chart Titles & Critical Cost Fix**
-**Status:** ✅ ENHANCED - Perfect metrics, actionable insights, accurate costs  
-**Branch:** `v0.1.9-hotfix2` (commit bf7dc0d on GitHub)  
-**Impact:** Production-enhanced reporting with aggregated chart insights and corrected cost calculations
+### **📋 Latest Implementation - Business Logic Corrections & Unicode Fixes**
+**Status:** ✅ COMPLETE - All business rules implemented correctly, Windows compatibility restored  
+**Branch:** `v0.1.9-hotfix2` (latest implementation)  
+**Impact:** Production-ready reporting with correct chronic persistence, performance monitoring, and cross-platform compatibility
 
 ---
 
 ## 📚 **Development History & Key Milestones**
+
+### **v0.1.9-rc13 (2025-08-05) - CRITICAL BUSINESS LOGIC IMPLEMENTATION**
+
+#### **🔄 "Once Chronic, Always Chronic" Rule Implementation**
+**Business Requirement:** Chronic circuits never automatically drop from the list - must be manually removed.
+
+**Implementation Details:**
+- **`load_all_previous_chronics()`** function loads ALL chronic circuits from previous months
+- **Persistent Classification:** Maintains consistent vs inconsistent status over time
+- **Historical Data Integration:** Scans `history/YYYY-MM/` folders for complete chronic history
+- **Manual Override Support:** Only manual exclusion can remove circuits from chronic status
+
+**Results:**
+```
+BEFORE: Hardcoded 23 circuits, missing recent chronics
+AFTER:  Dynamic loading from history, restored to 24 circuits including 444282783
+```
+
+#### **🎯 Critical Circuits Selection Fix**
+**Business Requirement:** Critical circuits must appear in 2+ top/bottom performance lists.
+
+**Implementation Details:**
+- **`get_critical_circuits()`** function counts appearances across all performance metrics
+- **Multi-Criteria Selection:** Tickets, availability, cost, MTBF analysis
+- **Eliminates N/A Values:** Only circuits with actual performance data qualify
+- **Top 3 Selection:** Most critical circuits based on appearance frequency
+
+#### **📊 Performance Monitoring Progression**
+**Business Requirement:** Dynamic monitoring progression: 2+ incidents → 60-day → 30-day → chronic.
+
+**Implementation Details:**
+- **`calculate_performance_monitoring()`** function implements business rules
+- **Automatic Progression:** Circuits advance based on incident patterns
+- **Classification Logic:** 
+  - **≥6 tickets = Consistent Chronic**
+  - **<6 tickets = Inconsistent Chronic**
+  - **2+ incidents = 60-day monitoring**
+  - **60-day + incidents = 30-day monitoring**
+
+#### **🏷️ Circuit Display Format Enhancement**
+**Business Requirement:** Show full "Vendor CircuitID" format instead of truncated vendor names.
+
+**Implementation Details:**
+- **`cleaned_to_original` mapping** preserves full circuit names
+- **Vendor Identification:** Maintains circuit inventory integration
+- **Consistent Display:** Applied across charts, Word docs, and text summaries
+
+#### **🖥️ Windows Compatibility Restoration**
+**Issue:** Unicode arrow characters (→) causing encoding errors on Windows.
+
+**Solution:**
+- **Unicode Replacement:** Changed all → to -> in Python files
+- **Cross-Platform Testing:** Verified compatibility on Windows and macOS
+- **Report Generation:** Restored Windows PC report generation capability
 
 ### **v0.1.9-rc10 (2025-07-08) - ENHANCED ACTIONABLE INSIGHTS**
 
@@ -230,13 +284,19 @@ inventory_vendors = {
 ```
 Input: Tableau Crosstab + ServiceNow Counts
 │
-├── Consistent Chronics (6+ tickets, baseline frozen)
-├── Inconsistent Chronics (6+ tickets, not in baseline)  
+├── Consistent Chronics (≥6 tickets/3 months, historical persistence) 
+├── Inconsistent Chronics (<6 tickets/3 months, historical persistence)
 ├── Media Chronics (VID-* patterns, tracked separately)
 ├── New Chronics (promoted from performance monitoring)
-└── Performance Monitoring (30-day, 60-day watch lists)
+└── Performance Monitoring (30-day, 60-day dynamic watch lists)
 
-Output: 23 total chronic circuits (excludes media/performance)
+Business Rules:
+• "Once Chronic, Always Chronic" - No automatic removal
+• Performance Progression: 2+ incidents → 60-day → 30-day → chronic
+• Critical Circuits: Must appear in 2+ top/bottom performance lists
+• Circuit Display: Full "Vendor CircuitID" format throughout
+
+Output: 24 total chronic circuits (includes all historical chronics)
 ```
 
 ### **Availability Metrics**
