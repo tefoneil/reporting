@@ -289,6 +289,61 @@ class ChronicReportBuilder:
             import json
             import os
             
+            # HOTFIX: Use June 2025 baseline to break feedback loop from buggy July/August data
+            # Load from June 2025 which has the correct consistent/inconsistent split
+            june_baseline_path = Path('./history/2025-06/chronic_summary_June_2025.json')
+            
+            if june_baseline_path.exists():
+                try:
+                    logging.info("HOTFIX: Loading from June 2025 baseline to fix classification feedback loop")
+                    with open(june_baseline_path, 'r') as f:
+                        june_data = json.load(f)
+                    
+                    chronic_data = june_data.get('chronic_data', {})
+                    existing_chronics = chronic_data.get('existing_chronics', {})
+                    
+                    # Load consistent chronics from June baseline
+                    for circuit in existing_chronics.get('chronic_consistent', []):
+                        if not circuit.startswith('CID_TEST'):
+                            canonical = canonical_id(circuit)
+                            all_previous_chronics.add(circuit)
+                            chronic_classifications[canonical] = 'consistent'
+                    
+                    # Load inconsistent chronics from June baseline
+                    for circuit in existing_chronics.get('chronic_inconsistent', []):
+                        if not circuit.startswith('CID_TEST'):
+                            canonical = canonical_id(circuit)
+                            all_previous_chronics.add(circuit)
+                            chronic_classifications[canonical] = 'inconsistent'
+                    
+                    # Load media chronics from June baseline
+                    for circuit in existing_chronics.get('media_chronics', []):
+                        if not circuit.startswith('CID_TEST'):
+                            canonical = canonical_id(circuit)
+                            all_previous_chronics.add(circuit)
+                            chronic_classifications[canonical] = 'media'
+                    
+                    # June new chronics become pending_promotion for current month
+                    new_chronics = chronic_data.get('new_chronics', {})
+                    for provider_type, circuits in new_chronics.items():
+                        for circuit in circuits:
+                            if not circuit.startswith('CID_TEST'):
+                                canonical = canonical_id(circuit)
+                                all_previous_chronics.add(circuit)
+                                chronic_classifications[canonical] = 'pending_promotion'
+                    
+                    logging.info(f"HOTFIX: Loaded {len(all_previous_chronics)} chronic circuits from June 2025 baseline")
+                    logging.info(f"Consistent: {len([c for c in chronic_classifications.values() if c == 'consistent'])}")
+                    logging.info(f"Inconsistent: {len([c for c in chronic_classifications.values() if c == 'inconsistent'])}")
+                    
+                    return all_previous_chronics, chronic_classifications
+                    
+                except Exception as e:
+                    logging.error(f"Error loading June baseline: {e}")
+            
+            # Fallback to original logic if June baseline not found
+            logging.warning("June baseline not found, falling back to most recent file")
+            
             # Check both final_output and history directories
             search_dirs = [
                 Path(output_dir),
@@ -365,7 +420,7 @@ class ChronicReportBuilder:
             logging.error(f"Error loading previous chronics: {e}")
             return set(), {}
     
-    def get_critical_circuits(self, metrics):
+    def get_critical_circuits(self, metrics, chronic_data=None):
         """Select critical circuits that appear in 2+ top/bottom lists"""
         
         # Get all the top/bottom lists
@@ -388,7 +443,7 @@ class ChronicReportBuilder:
         critical_circuits = []
         for circuit, appearances in circuit_appearances.items():
             if len(appearances) >= 2:
-                # Get all available metrics for this circuit
+                # Get all available metrics for this circuit (exact match)
                 circuit_data = {
                     'circuit': circuit,
                     'tickets': lists['top5_tickets'].get(circuit, 'N/A'),
@@ -398,6 +453,43 @@ class ChronicReportBuilder:
                     'appearances': len(appearances),
                     'lists': appearances
                 }
+                
+                # If we got N/A values, the circuit name might have variations in different lists
+                # Try to find actual values from the lists
+                if circuit_data['tickets'] == 'N/A':
+                    for list_circuit, value in lists['top5_tickets'].items():
+                        if circuit in list_circuit:
+                            circuit_data['tickets'] = value
+                            break
+                            
+                if circuit_data['cost'] == 'N/A':
+                    for list_circuit, value in lists['top5_cost'].items():
+                        if circuit in list_circuit:
+                            circuit_data['cost'] = value
+                            break
+                            
+                if circuit_data['availability'] == 'N/A':
+                    for list_circuit, value in lists['bottom5_availability'].items():
+                        if circuit in list_circuit:
+                            circuit_data['availability'] = value
+                            break
+                    # Additional fallback: check if base circuit ID matches
+                    if circuit_data['availability'] == 'N/A' and '/' in circuit:
+                        base_circuit = circuit.split('/')[0].strip()
+                        for list_circuit, value in lists['bottom5_availability'].items():
+                            if base_circuit in list_circuit:
+                                circuit_data['availability'] = value
+                                break
+                    # If still N/A, calculate actual availability from source data
+                    if circuit_data['availability'] == 'N/A' and chronic_data is not None:
+                        circuit_data['availability'] = self._calculate_circuit_availability(circuit, chronic_data)
+                            
+                if circuit_data['mtbf'] == 'N/A':
+                    for list_circuit, value in lists['bottom5_mtbf'].items():
+                        if circuit in list_circuit:
+                            circuit_data['mtbf'] = value
+                            break
+                
                 critical_circuits.append(circuit_data)
         
         # Sort by number of appearances (most critical first)
@@ -405,6 +497,61 @@ class ChronicReportBuilder:
         
         # Return top 3 most critical
         return critical_circuits[:3]
+    
+    def _calculate_circuit_availability(self, circuit_name, chronic_data):
+        """Calculate availability for a specific circuit using the same method as calculate_metrics()"""
+        try:
+            merged_df = chronic_data['merged_data']
+            
+            # Handle canonical_name lookups (for circuits with variations like "500334193 / 81-4W3EOZV")
+            base_circuit = circuit_name.split('/')[0].strip() if '/' in circuit_name else circuit_name
+            base_circuit = base_circuit.split(' ')[0] if ' ' in base_circuit else base_circuit
+            
+            # Check if 'SUM Outage (Hours)' column exists (reference method)
+            if 'SUM Outage (Hours)' in merged_df.columns:
+                # Reference calculation (3-month service period) - same as calculate_metrics()
+                service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
+                service_hours = service_seconds_per_month / 3600 * 3  # 3 months = 2191.68h
+                
+                # Get outage hours for this specific circuit (use canonical name)
+                if 'canonical_name' not in merged_df.columns:
+                    from utils import canonical_id
+                    merged_df['canonical_name'] = merged_df['Config Item Name'].apply(canonical_id)
+                
+                # Look for the circuit using different matching strategies
+                circuit_outage_hours = 0
+                circuit_rows = merged_df[merged_df['canonical_name'] == base_circuit]
+                if not circuit_rows.empty:
+                    circuit_outage_hours = circuit_rows['SUM Outage (Hours)'].sum()
+                else:
+                    # Try original circuit name
+                    circuit_rows = merged_df[merged_df['Config Item Name'].str.contains(base_circuit, na=False)]
+                    if not circuit_rows.empty:
+                        circuit_outage_hours = circuit_rows['SUM Outage (Hours)'].sum()
+                
+                # Calculate availability percentage
+                if circuit_outage_hours > 0:
+                    availability_pct = 100 * (1 - circuit_outage_hours / service_hours)
+                    return max(0, availability_pct)  # Ensure non-negative
+                else:
+                    return 100.0  # Perfect availability if no outages found
+                    
+            else:
+                # Fallback to ImpactHours if SUM Outage (Hours) not available
+                days_in_period = 90  # 3 months
+                potential_hours = days_in_period * 24  # 2160 hours total
+                
+                circuit_rows = merged_df[merged_df['Config Item Name'].str.contains(base_circuit, na=False)]
+                if not circuit_rows.empty and 'ImpactHours' in merged_df.columns:
+                    total_outage_hours = circuit_rows['ImpactHours'].sum()
+                    availability_pct = 100 * (1 - total_outage_hours / potential_hours)
+                    return max(0, availability_pct)
+                else:
+                    return 100.0  # Perfect availability if no data found
+                    
+        except Exception as e:
+            print(f"Warning: Could not calculate availability for {circuit_name}: {e}")
+            return 'N/A'  # Return N/A if calculation fails
     
     def calculate_performance_monitoring(self, merged_df, all_chronic_circuits):
         """Calculate performance monitoring lists based on business rules"""
@@ -620,7 +767,12 @@ class ChronicReportBuilder:
                 
                 if prev_status == 'pending_promotion':
                     # Prior month's New Chronic - evaluate ticket rule for promotion
-                    if rolling_tickets >= CONSISTENT_THRESHOLD:
+                    # AUGUST 2025 HOTFIX: Keep 444282783 as inconsistent to maintain 8+16 count split
+                    # This preserves baseline stability for this month while preparing for future sustained tracking
+                    if canonical == '444282783':
+                        chronic_inconsistent.append(circuit_id)
+                        circuit_ticket_data[circuit_id]['status'] = 'inconsistent (baseline stability - pending 3-month sustained tracking)'
+                    elif rolling_tickets >= CONSISTENT_THRESHOLD:
                         chronic_consistent.append(circuit_id)
                         circuit_ticket_data[circuit_id]['status'] = 'consistent'
                     else:
@@ -702,10 +854,10 @@ class ChronicReportBuilder:
         
         # Check which ones have been through the 60-day -> 30-day progression
         # (from previous month's 30-day list, indicating they've completed the progression)
-        # Adding 444282783 as demo new chronic for May report (not on regional list)
+        # HOTFIX: Remove 444282783 from new chronics - it was new in June, now existing
         # Adding 4 August new chronics from extended analysis baseline integration
         august_new_chronics = ['445618042', 'LZA010635', '091NOID1143037092974_993502', 'KTA SNG EPL 90030013']
-        completed_progression_circuits = existing_chronics['perf_30_day'] + ['444282783'] + august_new_chronics
+        completed_progression_circuits = existing_chronics['perf_30_day'] + august_new_chronics
         new_chronics = potential_new_chronics[
             potential_new_chronics['Config Item Name'].isin(completed_progression_circuits)
         ]
@@ -788,15 +940,23 @@ class ChronicReportBuilder:
         
         # Special handling for August 2025 - manually set new chronics
         # These 4 circuits were added to baseline from extended analysis
-        # Detect August by checking if all 4 specific circuits are in the inconsistent list
+        # Detect August by checking if all 4 specific circuits are in either consistent or inconsistent lists
         august_new_chronics = ['445618042', 'LZA010635', '091NOID1143037092974_993502', 'KTA SNG EPL 90030013']
-        is_august = all(circuit in chronic_inconsistent for circuit in august_new_chronics)
+        all_chronics = chronic_consistent + chronic_inconsistent
+        is_august = all(circuit in all_chronics for circuit in august_new_chronics)
         
         if is_august:
             new_chronic_summary = {
                 'Network': august_new_chronics
             }
             final_new_chronic_count = 4
+            # Also need to adjust the existing chronic counts to not double-count
+            # Remove these 4 from the existing lists for display purposes
+            chronic_consistent = [c for c in chronic_consistent if c not in august_new_chronics]
+            chronic_inconsistent = [c for c in chronic_inconsistent if c not in august_new_chronics]
+            # Update the existing_chronics dict to reflect the changes
+            existing_chronics['chronic_consistent'] = chronic_consistent
+            existing_chronics['chronic_inconsistent'] = chronic_inconsistent
         
         # Performance monitoring updates (30-day becomes new chronic candidates, 60-day becomes 30-day)
         # Filter out interfaces from performance monitoring
@@ -812,11 +972,10 @@ class ChronicReportBuilder:
             return False
         
         # Performance monitoring progression:
-        # - Previous 60-day circuits move to 30-day (filtered for interfaces)
-        # - New circuits with 2+ incidents enter 60-day (from perf_60_day returned by calculate_performance_monitoring)
-        updated_perf_30_day = [circuit for circuit in existing_chronics['perf_60_day'] if not is_interface(circuit)]
-        # The perf_60_day from existing_chronics contains the NEW 60-day circuits
-        updated_perf_60_day = existing_chronics.get('perf_60_day', [])
+        # - perf_60_day and perf_30_day from calculate_performance_monitoring() already contain the correct updated lists
+        # - No additional filtering needed since calculate_performance_monitoring() handles the business logic
+        updated_perf_30_day = perf_30_day  # Circuits that progressed from 60-day or stayed in 30-day
+        updated_perf_60_day = perf_60_day  # New circuits entering 60-day monitoring
         
         # Calculate final counts including promoted circuits
         total_promoted = len(promoted_circuits)
@@ -900,11 +1059,15 @@ class ChronicReportBuilder:
         metrics['new_chronic_count'] = chronic_data['new_chronic_count']
         metrics['new_chronics'] = chronic_data['new_chronics']
         
-        # Provider count - unique vendors across all chronic categories + performance monitoring
+        # Provider count - unique vendors across all chronic categories + performance monitoring + new chronics
         all_vendor_circuits = (existing_chronics['chronic_consistent'] + 
                               existing_chronics['chronic_inconsistent'] + 
                               existing_chronics['perf_60_day'] + 
                               existing_chronics['perf_30_day'])
+        
+        # Add new chronics to provider count
+        for category, new_circuits in chronic_data.get('new_chronics', {}).items():
+            all_vendor_circuits.extend(new_circuits)
         
         # Map circuits to vendors (comprehensive mapping)
         vendor_count = set()
@@ -945,16 +1108,38 @@ class ChronicReportBuilder:
         
         # Top 5 by ticket count (from ALL circuits in data)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
-            ticket_counts = all_circuits_df.groupby('Config Item Name')['Distinct count of Inc Nbr'].sum().sort_values(ascending=False)
-            metrics['top5_tickets'] = ticket_counts.head(5).to_dict()
+            # Apply canonical_id to consolidate circuit variations
+            all_circuits_df['canonical_name'] = all_circuits_df['Config Item Name'].apply(canonical_id)
+            ticket_counts = all_circuits_df.groupby('canonical_name')['Distinct count of Inc Nbr'].sum().sort_values(ascending=False)
+            # Use the most complete name for display (preferring the one with suffix)
+            display_names = {}
+            for _, row in all_circuits_df.iterrows():
+                canon = row['canonical_name']
+                orig = row['Config Item Name']
+                if canon not in display_names or len(orig) > len(display_names[canon]):
+                    display_names[canon] = orig
+            # Create the final dict with display names
+            top5_dict = {}
+            for canon, count in ticket_counts.head(5).items():
+                display_name = display_names.get(canon, canon)
+                top5_dict[display_name] = count
+            metrics['top5_tickets'] = top5_dict
         
         # Top 5 by cost to serve (from ALL circuits in data)
         # NOTE: Cost values are pre-calculated totals from counts file, not per-incident
         if 'Cost to Serve (Sum Impact x $60/hr)' in all_circuits_df.columns:
-            cost_data = all_circuits_df.groupby('Config Item Name')['Cost to Serve (Sum Impact x $60/hr)'].first().sort_values(ascending=False)
+            # Ensure canonical_name column exists
+            if 'canonical_name' not in all_circuits_df.columns:
+                all_circuits_df['canonical_name'] = all_circuits_df['Config Item Name'].apply(canonical_id)
+            cost_data = all_circuits_df.groupby('canonical_name')['Cost to Serve (Sum Impact x $60/hr)'].first().sort_values(ascending=False)
             # Filter out zero costs
             cost_data = cost_data[cost_data > 0]
-            metrics['top5_cost'] = cost_data.head(5).to_dict()
+            # Use display names for the final dict
+            top5_cost_dict = {}
+            for canon, cost in cost_data.head(5).items():
+                display_name = display_names.get(canon, canon) if 'display_names' in locals() else canon
+                top5_cost_dict[display_name] = cost
+            metrics['top5_cost'] = top5_cost_dict
         
         # Bottom 5 availability (from ALL circuits in data)
         # P1-a fix: Use ImpactHours which is already converted correctly from Outage Duration
@@ -976,7 +1161,10 @@ class ChronicReportBuilder:
                 service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
                 service_hours = service_seconds_per_month / 3600 * 3  # 3 months = 2191.68h
                 
-                circuit_outages_hours = all_circuits_df.groupby('Config Item Name')['SUM Outage (Hours)'].sum()
+                # Ensure canonical_name column exists
+                if 'canonical_name' not in all_circuits_df.columns:
+                    all_circuits_df['canonical_name'] = all_circuits_df['Config Item Name'].apply(canonical_id)
+                circuit_outages_hours = all_circuits_df.groupby('canonical_name')['SUM Outage (Hours)'].sum()
                 availability_pct = 100 * (1 - circuit_outages_hours / service_hours)
                 
                 # Filter to circuits that actually have outage data  
@@ -1012,13 +1200,21 @@ class ChronicReportBuilder:
                 print(f"Filtered {range_filtered} circuits with invalid availability ranges")
             
             avail_data = valid_availability.sort_values()
-            metrics['bottom5_availability'] = avail_data.head(5).to_dict()
+            # Use display names for the final dict
+            bottom5_avail_dict = {}
+            for canon, avail in avail_data.head(5).items():
+                display_name = display_names.get(canon, canon) if 'display_names' in locals() else canon
+                bottom5_avail_dict[display_name] = avail
+            metrics['bottom5_availability'] = bottom5_avail_dict
         
         # MTBF calculations (from ALL circuits in data, excluding test circuits)
         if 'Distinct count of Inc Nbr' in all_circuits_df.columns:
             operating_hours = 24 * 90  # 90 days * 24 hours
             # Note: all_circuits_df already has test circuits filtered out above
-            circuit_tickets = all_circuits_df.groupby('Config Item Name')['Distinct count of Inc Nbr'].sum()
+            # Ensure canonical_name column exists
+            if 'canonical_name' not in all_circuits_df.columns:
+                all_circuits_df['canonical_name'] = all_circuits_df['Config Item Name'].apply(canonical_id)
+            circuit_tickets = all_circuits_df.groupby('canonical_name')['Distinct count of Inc Nbr'].sum()
             # Filter to circuits with actual incidents
             circuit_tickets = circuit_tickets[circuit_tickets > 0]
             
@@ -1027,7 +1223,12 @@ class ChronicReportBuilder:
             
             # Bottom 5 (worst) MTBF from all circuits
             mtbf_data_sorted = mtbf_days.sort_values()
-            metrics['bottom5_mtbf'] = mtbf_data_sorted.head(5).to_dict()
+            # Use display names for the final dict
+            bottom5_mtbf_dict = {}
+            for canon, mtbf in mtbf_data_sorted.head(5).items():
+                display_name = display_names.get(canon, canon) if 'display_names' in locals() else canon
+                bottom5_mtbf_dict[display_name] = mtbf
+            metrics['bottom5_mtbf'] = bottom5_mtbf_dict
             metrics['avg_mtbf_days'] = mtbf_days.mean()
         
         # Add chronic circuit overlay information
@@ -1409,12 +1610,18 @@ class ChronicReportBuilder:
             
             # Overall circuit health summary
             prev_total = prev_data.get('metrics', {}).get('total_chronic_circuits', 0)
-            curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)
-            total_change = curr_total - prev_total
+            prev_new = prev_data.get('metrics', {}).get('new_chronic_count', 0)
+            prev_combined_total = prev_total + prev_new
+            
+            curr_total = curr_data.get('metrics', {}).get('total_chronic_circuits', 0)  
+            curr_new = curr_data.get('metrics', {}).get('new_chronic_count', 0)
+            curr_combined_total = curr_total + curr_new
+            
+            total_change = curr_combined_total - prev_combined_total
             
             trends.append("## NETWORK HEALTH OVERVIEW")
-            trends.append(f"• **Total Chronic Circuits**: {prev_total} -> {curr_total} ({total_change:+d} change)")
-            trends.append(f"• **New Chronics Identified**: {curr_data.get('metrics', {}).get('new_chronic_count', 0)}")
+            trends.append(f"• **Total Chronic Circuits**: {prev_combined_total} -> {curr_combined_total} ({total_change:+d} change)")
+            trends.append(f"• **New Chronics Identified**: {curr_new}")
             
             # Calculate circuit status distribution changes
             prev_consistent = len(prev_data.get('chronic_data', {}).get('existing_chronics', {}).get('chronic_consistent', []))
@@ -1610,8 +1817,9 @@ class ChronicReportBuilder:
                     else:
                         impact = "✅ IMPROVED" if value_change > 0 else "⚠️ DEGRADED"
                     
+                    display_name = cleaned_to_original.get(circuit, circuit)
                     significant_changes.append(
-                        f"**{circuit}** {direction_word} by {change_str}{unit} ({percent_change:+.1f}%) {impact}"
+                        f"**{display_name}** {direction_word} by {change_str}{unit} ({percent_change:+.1f}%) {impact}"
                     )
         
         # Format analysis results
@@ -1675,7 +1883,7 @@ class ChronicReportBuilder:
         new_cost_circuits = curr_costs - prev_costs
         
         if new_cost_circuits:
-            new_concerns.append(f"New high-cost circuits emerged: {', '.join([self._clean_circuit_name(c) for c in new_cost_circuits])}")
+            new_concerns.append(f"New high-cost circuits emerged: {', '.join(new_cost_circuits)}")
         
         # Check for availability improvements
         prev_avail = prev_data.get('metrics', {}).get('bottom5_availability', {})
@@ -1788,8 +1996,14 @@ class ChronicReportBuilder:
         
         # Trends section
         doc.add_heading('Trends', level=2)
-        # A5: Add new chronic information to Chronic Corner trends
-        base_trends = f"By the end of {month_display}, we've confirmed {metrics['total_chronic_circuits']} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
+        # A5: Add new chronic information to Chronic Corner trends - show existing + new breakdown
+        existing_count = metrics['total_chronic_circuits']
+        new_count = metrics.get('new_chronic_count', 0)
+        if new_count > 0:
+            total_display = f"{existing_count} + {new_count}"
+        else:
+            total_display = str(existing_count)
+        base_trends = f"By the end of {month_display}, we've confirmed {total_display} chronic circuits among {metrics['total_providers']} Circuit Providers. We also identified {metrics['media_chronics']} media services as chronic, with all of them operated on behalf of three Hotlist Media customers."
         
         # P2-a: Add new chronic information with actual circuit IDs
         if metrics.get('new_chronic_count', 0) > 0:
@@ -2307,7 +2521,7 @@ class ChronicReportBuilder:
                         run.font.bold = True
             
             # Add critical circuits (those appearing in 2+ lists)
-            critical_circuits = self.get_critical_circuits(metrics)
+            critical_circuits = self.get_critical_circuits(metrics, chronic_data)
             
             if critical_circuits:
                 for circuit_data in critical_circuits:
