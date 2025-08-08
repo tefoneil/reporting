@@ -1,0 +1,76 @@
+{
+  "chronic_circuits": {
+    "SR216187": {
+      "classification": "consistent",
+      "vendor": "PCCW",
+      "last_seen": "August",
+      "tickets": 8,
+      "cost": 53768.31666666667,
+      "availability": 59.11179501062603,
+      "reason": "$53,768 cost + 59.1% availability"
+    },
+    "LZA010663": {
+      "classification": "inconsistent",
+      "vendor": "NTT",
+      "last_seen": "August",
+      "tickets": 6,
+      "cost": 17441.866666666665,
+      "availability": 86.7363037588618,
+      "reason": "$17,442 cost"
+    },
+    "500335805": {
+      "classification": "inconsistent",
+      "vendor": "Cirion",
+      "last_seen": "August",
+      "tickets": 13,
+      "cost": 14965.099999999999,
+      "availability": 88.61976505085902,
+      "reason": "$14,965 cost"
+    },
+    "W1E32092": {
+      "classification": "inconsistent",
+      "vendor": "Verizon",
+      "last_seen": "August",
+      "tickets": 5,
+      "cost": 8035.6833333333325,
+      "availability": 93.88925137084084,
+      "reason": "$8,036 cost"
+    },
+    "W1E39404": {
+      "classification": "inconsistent",
+      "vendor": "Verizon",
+      "last_seen": "August",
+      "tickets": 4,
+      "cost": 5192.15,
+      "availability": 96.05162097873169,
+      "reason": "$5,192 cost"
+    },
+    "N2864477L": {
+      "classification": "inconsistent",
+      "vendor": "Unknown",
+      "last_seen": "August",
+      "tickets": 5,
+      "cost": 5013.116666666666,
+      "availability": 96.18776717201214,
+      "reason": "$5,013 cost"
+    }
+  },
+  "performance_metrics": {
+    "total_chronics": 28,
+    "consistent_count": 8,
+    "inconsistent_count": 16,
+    "media_count": 11,
+    "new_count": 4
+  },
+  "thresholds": {
+    "ticket_threshold": 20,
+    "cost_threshold": 5000,
+    "availability_threshold": 80.0,
+    "mtbf_threshold": 5.0
+  },
+  "last_processed": {
+    "month": "August",
+    "timestamp": "2025-08-07T22:46:36.592352",
+    "total_chronics": 6
+  }
+}

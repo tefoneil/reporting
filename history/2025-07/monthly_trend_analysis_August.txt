@@ -5,15 +5,15 @@
 ## NETWORK HEALTH OVERVIEW
 • **Total Chronic Circuits**: 24 -> 28 (+4 change)
 • **New Chronics Identified**: 4
-• **Consistent Circuits**: 8 -> 9 (+1)
+• **Consistent Circuits**: 8 -> 8 (+0)
 
 ## TOP TICKET GENERATORS ANALYSIS
 ### New Problem Circuits:
 • **Cirion 500332738** entered at #3 (29tickets)
 
 ### Improved Circuits:
-• **Telstra PTH TOK EPL 90030025** improved out of worst performers (was #3)
 • **PCCW SR216187** improved out of worst performers (was #2)
+• **Telstra PTH TOK EPL 90030025** improved out of worst performers (was #3)
 
 ### Significant Value Changes:
 • **Verizon W1E32092** increased by +5.0tickets (+23.8%) ⚠️ DEGRADED
@@ -26,12 +26,12 @@
 • **PCCW SR216187** entered at #1 ($53,768)
 
 ### Improved Circuits:
-• **Telstra N2864477L** improved out of worst performers (was #3)
 • **444282783** improved out of worst performers (was #5)
+• **Telstra N2864477L** improved out of worst performers (was #3)
 
 ### Significant Value Changes:
-• **NTT LZA010663** increased by $+8,227$ (+89.3%) ⚠️ DEGRADED
 • **Cirion 500335805** increased by $+8,082$ (+117.4%) ⚠️ DEGRADED
+• **NTT LZA010663** increased by $+8,227$ (+89.3%) ⚠️ DEGRADED
 
 ## AVAILABILITY PERFORMANCE ANALYSIS
 ### New Problem Circuits:
@@ -40,20 +40,20 @@
 • **445597814** entered at #5 (90.4%)
 
 ### Improved Circuits:
-• **Telstra N2864477L** improved out of worst performers (was #3)
 • **444282783** improved out of worst performers (was #5)
+• **Telstra N2864477L** improved out of worst performers (was #3)
 
 ### Significant Value Changes:
-• **NTT LZA010663** decreased by -18.8% (-23.8%) ⚠️ DEGRADED
 • **Cirion 500335805** decreased by -18.4% (-21.9%) ⚠️ DEGRADED
+• **NTT LZA010663** decreased by -18.8% (-23.8%) ⚠️ DEGRADED
 
 ## RELIABILITY (MTBF) ANALYSIS
 ### New Problem Circuits:
 • **Cirion 500332738** entered at #3 (3.1 days)
 
 ### Improved Circuits:
-• **Telstra PTH TOK EPL 90030025** improved out of worst performers (was #3)
 • **PCCW SR216187** improved out of worst performers (was #2)
+• **Telstra PTH TOK EPL 90030025** improved out of worst performers (was #3)
 
 ### Significant Value Changes:
 • **500334193 / 81-4W3EOZV** decreased by -0.7days (-26.7%) ⚠️ DEGRADED
@@ -63,7 +63,7 @@
 • Major ticket volume spikes: 500334193 (+12 tickets)
 
 ### EMERGING PATTERNS:
-• New high-cost circuits emerged: Verizon W1E39404, PCCW SR216187, Verizon W1E32092
+• New high-cost circuits emerged: PCCW SR216187, Verizon W1E39404, Verizon W1E32092
 
 ### OVERALL NETWORK TREND:
 • **Growing chronic problem** - 4 new chronic circuits require root cause analysis
