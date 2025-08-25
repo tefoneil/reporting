@@ -6,7 +6,7 @@
     "tool_version": "0.1.9",
     "python_version": "3.12.8",
     "git_commit": "de178ff309020a9fd69e6cc925c6d3ddcee94691",
-    "run_timestamp": "2025-07-08T11:34:53.089691Z",
+    "run_timestamp": "2025-07-08T11:40:04.599942Z",
     "crosstab_sha256": "748249fd8d0393d32dc9947c56998282614df601a7223c5b3b9c24e5e757e876",
     "counts_sha256": "7f9fbb2e55bd2339241ae60ad0eea56382c7e895740369c9bd686ab86f38720f"
   },
@@ -48,17 +48,17 @@
         "N2864477L"
       ],
       "media_chronics": [
-        "VID-0875",
-        "VID-1574",
         "VID-1598",
-        "VID-1575",
-        "VID-1530",
         "VID-1146",
         "VID-1582",
-        "VID-1525",
-        "VID-1597",
+        "VID-1574",
         "VID-1583",
-        "VID-1581"
+        "VID-1597",
+        "VID-0875",
+        "VID-1575",
+        "VID-1581",
+        "VID-1525",
+        "VID-1530"
       ],
       "perf_60_day": [
         "444089285",
@@ -257,5 +257,5 @@
       "N2864477L"
     ]
   },
-  "generated_at": "2025-07-08T11:34:52.776969"
+  "generated_at": "2025-07-08T11:40:04.303138"
 }

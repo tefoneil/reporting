@@ -1,0 +1,91 @@
+CHRONIC CIRCUITS LIST - JUNE 2025 REPORT
+========================================
+
+TOTAL CHRONIC CIRCUITS: 24
+
+CHRONIC CONSISTENT (8 circuits):
+-----------------------------------
+1. 500332738
+2. 500334193
+3. 500335805
+4. 091NOID1143035717419_889599
+5. 091NOID1143035717849_889621
+6. SR216187
+7. PTH TOK EPL 90030025
+8. LZA010663
+
+CHRONIC INCONSISTENT (15 circuits):
+-----------------------------------
+1. LD017936
+2. IST6041E#3_010G
+3. IST6022E#2_010G
+4. HI/ADM/00697867
+5. SR215576
+6. SSO-JBTKRHS002F-DWDM10
+7. 443463817
+8. 445597814
+9. 443919489
+10. 445979698
+11. 443832799
+12. FRO2007133508
+13. W1E32092
+14. N9675474L
+15. N2864477L
+
+MEDIA CHRONICS (11 circuits):
+-----------------------------------
+1. VID-1583
+2. VID-0875
+3. VID-1525
+4. VID-1530
+5. VID-1597
+6. VID-1146
+7. VID-1575
+8. VID-1574
+9. VID-1581
+10. VID-1598
+11. VID-1582
+
+NEW CHRONIC CIRCUITS (1 circuit):
+-----------------------------------
+1. 444282783 (Leased Line Circuit)
+
+PERFORMANCE MONITORING:
+-----------------------------------
+30-Day Performance Watch: 444089285, 444089468
+60-Day Performance Watch: None
+
+TOP 5 WORST PERFORMERS:
+-----------------------------------
+By Ticket Count:
+- PCCW SR216187: 51 tickets
+- 500334193 / 81-4W3EOZV: 33 tickets
+- Telstra PTH TOK EPL 90030025: 23 tickets
+- 091NOID1143035717849: 21 tickets
+- Verizon W1E32092: 21 tickets
+
+By Availability (Worst):
+- NTT LZA010634: 7.41%
+- INT-BRW1-LA1-ETH-01: 12.22%
+- 445979698: 17.16%
+- 500263377: 19.50%
+- 445252110: 27.25%
+
+By Cost to Serve (Highest):
+- NTT LZA010663: $27,645
+- Telstra PTH TOK EPL 90030025: $26,324
+- Telstra N2864477L: $21,171
+- 500335805: $20,650
+- 444282783: $16,311
+
+By MTBF (Worst):
+- PCCW SR216187: 1.8 days
+- 500334193 / 81-4W3EOZV: 2.7 days
+- Telstra PTH TOK EPL 90030025: 3.9 days
+- 091NOID1143035717849: 4.3 days
+- Verizon W1E32092: 4.3 days
+
+Notes:
+- (C) indicates chronic circuits
+- (R) indicates regional correlation
+- (C/R) indicates both chronic and regional

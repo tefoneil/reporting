@@ -27,6 +27,15 @@ import subprocess
 from analyze_data import get_rolling_ticket_total
 from utils import canonical_id, warn_low_ticket_median, validate_metadata, get_file_sha256, validate_calculations, filter_test_circuits, format_circuit_display_name
 
+# SQLite integration (optional - works alongside existing logic)
+try:
+    from sqlite_helper import RBuilderSQLiteHelper
+    SQLITE_AVAILABLE = True
+    print("📊 SQLite helper loaded - historical data tracking enabled")
+except ImportError:
+    SQLITE_AVAILABLE = False
+    print("⚠️  SQLite helper not available - using original logic only")
+
 # Configuration constants
 CONSISTENT_THRESHOLD = int(os.getenv("MR_CONSISTENT_THRESHOLD", 6))
 DYNAMIC_CONSISTENCY = int(os.getenv("MR_DYNAMIC_CONSISTENCY", 0))  # 0 = legacy mode, 1 = dynamic mode
@@ -48,6 +57,16 @@ class ChronicReportBuilder:
         self.exclude_regional = exclude_regional
         self.show_indicators = show_indicators
         self.service_seconds_per_month = 30.44 * 24 * 3600  # Average month in seconds
+        
+        # Initialize SQLite helper (optional)
+        self.sqlite_helper = None
+        if SQLITE_AVAILABLE:
+            try:
+                self.sqlite_helper = RBuilderSQLiteHelper("rbuilder.db")
+                print("✅ SQLite database ready for historical tracking")
+            except Exception as e:
+                print(f"⚠️  SQLite initialization failed: {e}")
+                self.sqlite_helper = None
         self.labor_rate = 60  # $60/hour loaded rate
         
         # Regional circuits list
@@ -837,6 +856,16 @@ class ChronicReportBuilder:
             'perf_60_day': perf_60_day,
             'perf_30_day': perf_30_day
         }
+        
+        # SQLite comparison (optional - for validation/future enhancement)
+        if self.sqlite_helper:
+            try:
+                sqlite_chronics = self.sqlite_helper.get_previous_chronics()
+                if sqlite_chronics['chronic_consistent'] or sqlite_chronics['chronic_inconsistent']:
+                    print(f"📊 SQLite has {len(sqlite_chronics['chronic_consistent'] + sqlite_chronics['chronic_inconsistent'])} previous chronics")
+                    # Future: Could use SQLite data to influence decisions or validate results
+            except Exception as e:
+                print(f"⚠️  SQLite query failed: {e}")
         
         # Find circuits that have progressed through performance monitoring
         all_existing_chronics = (existing_chronics['chronic_consistent'] + 
@@ -3052,6 +3081,15 @@ class ChronicReportBuilder:
         
         with open(output_dir / f"chronic_summary_{month_str}.json", 'w') as f:
             json.dump(summary_data, f, indent=2, default=str)
+        
+        # SQLite logging (optional - works alongside existing files)
+        if self.sqlite_helper:
+            try:
+                run_id = self.sqlite_helper.log_monthly_run(month_str, chronic_data, metadata)
+                self.sqlite_helper.store_chronic_circuits(run_id, chronic_data, metrics)
+                print(f"📊 SQLite: Logged data for {month_str} (Run ID: {run_id})")
+            except Exception as e:
+                print(f"⚠️  SQLite logging failed (continuing normally): {e}")
         
         # P1-b: Generate trend analysis AFTER JSON is saved
         trend_analysis = self.generate_trend_analysis(month_str, output_dir)

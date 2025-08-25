@@ -1,7 +1,7 @@
-CHRONIC CIRCUITS LIST - JUNE REPORT
+CHRONIC CIRCUITS LIST - MAY 2025 REPORT
 ========================================
 
-TOTAL CHRONIC CIRCUITS: 24
+TOTAL CHRONIC CIRCUITS: 25
 
 CHRONIC CONSISTENT (8 circuits):
 -----------------------------------
@@ -14,7 +14,7 @@ CHRONIC CONSISTENT (8 circuits):
 7. PTH TOK EPL 90030025
 8. LZA010663
 
-CHRONIC INCONSISTENT (15 circuits):
+CHRONIC INCONSISTENT (17 circuits):
 -----------------------------------
 1. LD017936
 2. IST6041E#3_010G
@@ -31,20 +31,22 @@ CHRONIC INCONSISTENT (15 circuits):
 13. W1E32092
 14. N9675474L
 15. N2864477L
+16. CID_TEST_7
+17. CID_TEST_4
 
 MEDIA CHRONICS (11 circuits):
 -----------------------------------
 1. VID-0875
 2. VID-1575
-3. VID-1525
-4. VID-1582
-5. VID-1581
+3. VID-1146
+4. VID-1583
+5. VID-1574
 6. VID-1598
-7. VID-1583
-8. VID-1146
-9. VID-1574
-10. VID-1597
-11. VID-1530
+7. VID-1597
+8. VID-1525
+9. VID-1530
+10. VID-1581
+11. VID-1582
 
 NEW CHRONIC CIRCUITS (1 circuit):
 -----------------------------------
@@ -58,32 +60,18 @@ PERFORMANCE MONITORING:
 TOP 5 WORST PERFORMERS:
 -----------------------------------
 By Ticket Count:
+- SR216187: 50 tickets
 - 500334193 / 81-4W3EOZV: 33 tickets
-- PCCW SR216187: 31 tickets
-- Telstra PTH TOK EPL 90030025: 23 tickets
-- 091NOID1143035717849: 21 tickets
-- Verizon W1E32092: 21 tickets
+- PTH TOK EPL 90030025: 23 tickets
+- W1E32092: 21 tickets
+- 091NOID1143035717849: 20 tickets
 
 By Availability (Worst):
-- NTT LZA010663: 78.98%
-- Telstra PTH TOK EPL 90030025: 79.98%
-- Telstra N2864477L: 83.90%
-- Cirion 500335805: 84.30%
+- PTH TOK EPL 90030025: 79.98%
+- LZA010663: 81.92%
+- N2864477L: 83.90%
+- 500335805: 84.30%
 - 444282783: 87.60%
-
-By Cost to Serve (Highest):
-- NTT LZA010663: $27,645
-- Telstra PTH TOK EPL 90030025: $26,324
-- Telstra N2864477L: $21,171
-- Cirion 500335805: $20,650
-- 444282783: $16,311
-
-By MTBF (Worst):
-- 500334193 / 81-4W3EOZV: 2.7 days
-- PCCW SR216187: 2.9 days
-- Telstra PTH TOK EPL 90030025: 3.9 days
-- 091NOID1143035717849: 4.3 days
-- Verizon W1E32092: 4.3 days
 
 Notes:
 - (C) indicates chronic circuits

@@ -1,0 +1,7 @@
+# Mark all archive files as binary to prevent merging
+*.txt binary
+*.json binary
+*.sha256 binary
+
+# Prevent modification
+* -diff

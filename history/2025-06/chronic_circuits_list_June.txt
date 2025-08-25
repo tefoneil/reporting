@@ -34,17 +34,17 @@ CHRONIC INCONSISTENT (15 circuits):
 
 MEDIA CHRONICS (11 circuits):
 -----------------------------------
-1. VID-0875
-2. VID-1574
-3. VID-1598
-4. VID-1575
-5. VID-1530
-6. VID-1146
-7. VID-1582
-8. VID-1525
-9. VID-1597
-10. VID-1583
-11. VID-1581
+1. VID-1598
+2. VID-1146
+3. VID-1582
+4. VID-1574
+5. VID-1583
+6. VID-1597
+7. VID-0875
+8. VID-1575
+9. VID-1581
+10. VID-1525
+11. VID-1530
 
 NEW CHRONIC CIRCUITS (1 circuit):
 -----------------------------------
